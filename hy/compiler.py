@@ -355,7 +355,7 @@ def is_annotate_expression(model):
 class HyASTCompiler(object):
     """A Hy-to-Python AST compiler"""
 
-    def __init__(self, module, filename=None, source=None):
+    def __init__(self, module, filename=None, source=None, replace_empty_attr_access=None):
         """
         Parameters
         ----------
@@ -368,6 +368,10 @@ class HyASTCompiler(object):
         source: str, optional
             The source for the file, if any, being compiled.  This is optional
             information for informative error messages and debugging.
+        replace_empty_attr_access: str, optional
+            Suppresses empty attribute access errors, i.e. `(something.)` during
+            compilation by substituting some string in place of the empty
+            attribute.
         """
         self.anon_var_count = 0
         self.imports = defaultdict(set)
@@ -382,6 +386,7 @@ class HyASTCompiler(object):
 
         self.filename = filename
         self.source = source
+        self.replace_empty_attr_access = replace_empty_attr_access
 
         # Hy expects these to be present, so we prep the module for Hy
         # compilation.
@@ -1847,8 +1852,11 @@ class HyASTCompiler(object):
                     'cannot access attribute on anything other than a name (in order to get attributes of expressions, use `(. <expression> {attr})` or `(.{attr} <expression>)`)'.format(attr=local))
 
             if not local:
-                raise self._syntax_error(symbol,
-                    'cannot access empty attribute')
+                if self.replace_empty_attr_access:
+                    local = self.replace_empty_attr_access
+                else:
+                    raise self._syntax_error(symbol,
+                        'cannot access empty attribute')
 
             glob = HySymbol(glob).replace(symbol)
             ret = self.compile_symbol(glob)
@@ -2133,7 +2141,8 @@ def _module_file_source(module_name, filename, source):
 
 
 def hy_compile(tree, module, root=ast.Module, get_expr=False,
-               compiler=None, filename=None, source=None):
+               compiler=None, filename=None, source=None,
+               replace_empty_attr_access=None):
     """Compile a HyObject tree into a Python AST Module.
 
     Parameters
@@ -2191,7 +2200,8 @@ def hy_compile(tree, module, root=ast.Module, get_expr=False,
         raise TypeError("`tree` must be a HyObject or capable of "
                         "being promoted to one")
 
-    compiler = compiler or HyASTCompiler(module, filename=filename, source=source)
+    compiler = compiler or HyASTCompiler(module, filename=filename, source=source,
+                                        replace_empty_attr_access=replace_empty_attr_access)
     result = compiler.compile(tree)
     expr = result.force_expr
 
