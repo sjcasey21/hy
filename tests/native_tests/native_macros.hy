@@ -489,6 +489,12 @@ in expansions."
   (test-macro)
   (assert (= blah 1)))
 
+(defn test-require-same-name-tag-and-macro []
+  ;; https://github.com/hylang/hy/issues/1967
+  (require [tests.resources.macros [same-name]])
+  (same-name None)
+  #same-name None
+  )
 
 (defn test-macro-errors []
   (import traceback

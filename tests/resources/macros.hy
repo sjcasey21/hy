@@ -20,3 +20,7 @@ defined, then the expansion namespace/module"
   `(.format (+ "This macro was created in {}, expanded in {} "
                "and passed the value {}.")
             ~module-name-var module-name-var ~x))
+
+;; https://github.com/hylang/hy/issues/1967
+(defmacro same-name [x])
+(deftag same-name [x])

@@ -201,13 +201,14 @@ def require(source_module, target_module, assignments, prefix=""):
     for name, alias in name_assigns:
         _name = mangle(name)
         alias = mangle(prefix + alias)
-        if _name in source_module.__macros__:
-            target_macros[alias] = source_macros[_name]
-        elif _name in source_module.__tags__:
-            target_tags[alias] = source_tags[_name]
-        else:
+        if _name not in source_module.__macros__ and _name not in source_module.__tags__:
             raise HyRequireError('Could not require name {} from {}'.format(
                 _name, source_module))
+
+        if _name in source_module.__macros__:
+            target_macros[alias] = source_macros[_name]
+        if _name in source_module.__tags__:
+            target_tags[alias] = source_tags[_name]
 
     return True
 
