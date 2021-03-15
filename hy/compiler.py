@@ -3,37 +3,70 @@
 # This file is part of Hy, which is free software licensed under the Expat
 # license. See the LICENSE.
 
-from itertools import dropwhile
-from hy.models import (HyObject, HyExpression, HyKeyword, HyInteger, HyComplex,
-                       HyString, HyFComponent, HyFString, HyBytes, HySymbol,
-                       HyFloat, HyList, HySet, HyDict, HySequence, wrap_value)
-from hy.model_patterns import (FORM, SYM, KEYWORD, STR, sym, brackets, whole,
-                               notpexpr, dolike, pexpr, times, Tag, tag, unpack)
-from funcparserlib.parser import some, many, oneplus, maybe, NoParseError, a
-from hy.errors import (HyCompileError, HyTypeError, HyLanguageError,
-                       HySyntaxError, HyEvalError, HyInternalError)
-
-from hy.lex import mangle, unmangle, hy_parse, parse_one_thing, LexException
-
-from hy._compat import (PY3_8, reraise)
-from hy.macros import require, macroexpand
-
-import textwrap
-import pkgutil
-import traceback
-import itertools
-import importlib
-import inspect
-import types
-import ast
-import sys
-import copy
-import builtins
 import __future__
 
+import ast
+import builtins
+import copy
+import importlib
+import inspect
+import itertools
+import pkgutil
+import sys
+import textwrap
+import traceback
+import types
 from collections import defaultdict
 from functools import reduce
 
+from funcparserlib.parser import NoParseError, many, maybe, oneplus, some
+
+import hy.core
+from hy._compat import PY38, reraise
+from hy.errors import (
+    HyCompileError,
+    HyEvalError,
+    HyInternalError,
+    HyLanguageError,
+    HySyntaxError,
+    HyTypeError,
+)
+from hy.lex import LexException, hy_parse, mangle, parse_one_thing, unmangle
+from hy.macros import load_macros, macroexpand, require
+from hy.model_patterns import (
+    FORM,
+    KEYWORD,
+    STR,
+    SYM,
+    Tag,
+    brackets,
+    dolike,
+    notpexpr,
+    pexpr,
+    sym,
+    tag,
+    times,
+    unpack,
+    whole,
+)
+from hy.models import (
+    HyBytes,
+    HyComplex,
+    HyDict,
+    HyExpression,
+    HyFComponent,
+    HyFloat,
+    HyFString,
+    HyInteger,
+    HyKeyword,
+    HyList,
+    HyObject,
+    HySequence,
+    HySet,
+    HyString,
+    HySymbol,
+    wrap_value,
+)
 
 Inf = float('inf')
 
