@@ -14,6 +14,7 @@ import textwrap
 import traceback
 import types
 from collections import defaultdict
+from typing import Type, Union
 
 from funcparserlib.parser import NoParseError, many, maybe, oneplus, some
 
@@ -71,7 +72,7 @@ hy_ast_compile_flags = (__future__.CO_FUTURE_DIVISION |
                         __future__.CO_FUTURE_PRINT_FUNCTION)
 
 
-def ast_compile(a, filename, mode):
+def ast_compile(a: ast.AST, filename: str, mode: str):
     """Compile AST.
 
     Parameters
@@ -91,7 +92,7 @@ def ast_compile(a, filename, mode):
     return compile(a, filename, mode, hy_ast_compile_flags)
 
 
-def calling_module(n=1):
+def calling_module(n: int=1):
     """Get the module calling, if available.
 
     As a fallback, this will import a module using the calling frame's
@@ -364,7 +365,7 @@ def is_annotate_expression(model):
 class HyASTCompiler(object):
     """A Hy-to-Python AST compiler"""
 
-    def __init__(self, module, filename=None, source=None):
+    def __init__(self, module: Union[str, types.ModuleType], filename: str=None, source: str=None):
         """
         Parameters
         ----------
@@ -2030,8 +2031,10 @@ def _module_file_source(module_name, filename, source):
     return filename, source
 
 
-def hy_compile(tree, module, root=ast.Module, get_expr=False,
-               compiler=None, filename=None, source=None, import_stdlib=True):
+def hy_compile(tree: HyObject, module: Union[str, types.ModuleType],
+             root: Type[ast.AST]=ast.Module, get_expr: bool=False,
+             compiler: HyASTCompiler=None, filename: str=None,
+             source: str=None, import_stdlib: bool = True):
     """Compile a HyObject tree into a Python AST Module.
 
     Parameters
