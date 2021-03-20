@@ -119,8 +119,10 @@ class HyString(HyObject, str):
     """
     def __new__(cls, s=None, brackets=None):
         value = super(HyString, cls).__new__(cls, s)
-        value.brackets = brackets
         return value
+
+    def __init__(self, s=None, brackets=None):
+        self.brackets: Optional[str] = brackets
 
 _wrappers[str] = HyString
 
@@ -342,6 +344,8 @@ class HyFComponent(HySequence):
             self.conversion = other.conversion
         return self
 
+from typing import Optional
+
 class HyFString(HySequence):
     """
     Generic Hy F-String object, for smarter f-string handling.
@@ -349,8 +353,10 @@ class HyFString(HySequence):
     """
     def __new__(cls, s=None, brackets=None):
         value = super().__new__(cls, s)
-        value.brackets = brackets
         return value
+
+    def __init__(self, s=None, brackets=None):
+        self.brackets: Optional[str] = brackets
 
 
 class HyList(HySequence):

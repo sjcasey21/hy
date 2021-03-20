@@ -14,9 +14,23 @@ import textwrap
 import traceback
 import types
 from itertools import dropwhile
-from typing import Final, Type, Union
+from typing import (
+    Any,
+    Callable,
+    cast,
+    Dict,
+    Final,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
-from funcparserlib.parser import NoParseError, many, maybe, oneplus, some
+from funcparserlib.parser import NoParseError, many, maybe, oneplus, some, Parser
 
 from hy._compat import PY3_8, reraise
 from hy.errors import (
@@ -65,6 +79,12 @@ from hy.models import (
 )
 
 # Constants ###################################################################
+T = TypeVar("T")
+Symbollike = TypeVar("Symbollike", str, HySymbol)
+Argument = Tuple[Optional[HyObject], Union[HySymbol, HyList]]
+Exprs = List[HyObject]
+Varargs = Tuple[Optional[HyObject], HySymbol]
+
 INF: Final = float("inf")
 HY_AST_COMPILE_FLAGS: Final = (
     __future__.CO_FUTURE_DIVISION | __future__.CO_FUTURE_PRINT_FUNCTION  # type: ignore
@@ -72,7 +92,7 @@ HY_AST_COMPILE_FLAGS: Final = (
 
 
 # Helper Functions ############################################################
-def ast_compile(a: ast.AST, filename: str, mode: str):
+def ast_compile(a: ast.AST, filename: str, mode: str) -> types.CodeType:
     """Compile AST.
 
     Args:
@@ -86,7 +106,7 @@ def ast_compile(a: ast.AST, filename: str, mode: str):
     return compile(a, filename, mode, HY_AST_COMPILE_FLAGS)
 
 
-def calling_module(n: int = 1):
+def calling_module(n: int = 1) -> Optional[types.ModuleType]:
     """Get the module calling, if available.
 
     As a fallback, this will import a module using the calling frame's
@@ -112,7 +132,7 @@ def calling_module(n: int = 1):
     return module
 
 
-def is_unpack(kind, x):
+def is_unpack(kind: str, x: object) -> bool:
     return (
         isinstance(x, HyExpression)
         and len(x) > 0
@@ -121,7 +141,7 @@ def is_unpack(kind, x):
     )
 
 
-def make_hy_model(outer, x, rest):
+def make_hy_model(outer: Callable[[Any], T], x: Iterable, rest: Optional[list]) -> T:
     def convert_to_hy_model(x):
         if isinstance(x, str):
             return HySymbol(x)
@@ -133,20 +153,20 @@ def make_hy_model(outer, x, rest):
     return outer([convert_to_hy_model(a) for a in x] + (rest or []))
 
 
-def mkexpr(*items, **kwargs):
+def mkexpr(*items, **kwargs) -> HyExpression:
     return make_hy_model(HyExpression, items, kwargs.get("rest"))
 
 
-def mklist(*items, **kwargs):
+def mklist(*items, **kwargs) -> HyList:
     return make_hy_model(HyList, items, kwargs.get("rest"))
 
 
-def pvalue(root, wanted):
+def pvalue(root, wanted) -> Parser:
     return pexpr(sym(root) + wanted) >> (lambda x: x[0])
 
 
-def is_annotate_expression(model):
-    return (
+def is_annotate_expression(model) -> bool:
+    return bool(
         isinstance(model, HyExpression)
         and model
         and isinstance(model[0], HySymbol)
@@ -155,8 +175,10 @@ def is_annotate_expression(model):
 
 
 # Compiler Form Decorators ####################################################
-_special_form_compilers = {}
-_model_compilers = {}
+_special_form_compilers: Dict[str, Tuple[Callable[..., "Result"], Parser]] = {}
+_model_compilers: Dict[
+    Type[HyObject], Callable[["HyASTCompiler", HyObject], "Result"]
+] = {}
 _decoratables = (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)
 _bad_roots = tuple(
     mangle(x) for x in ("unquote", "unquote-splice", "unpack-mapping", "except")
@@ -166,13 +188,17 @@ by other special forms (e.g., `except` in `try`) but can't be
 used to construct special forms themselves.
 """
 
+SpecialFormName = Union[str, Tuple[bool, str]]
 
-def special(names, pattern):
+
+def special(
+    names: Union[SpecialFormName, List[SpecialFormName]], patterns: List[Parser]
+) -> Callable:
     """Declare special operators. The decorated method and the given pattern
     is assigned to _special_form_compilers for each of the listed names."""
-    pattern = whole(pattern)
+    pattern = whole(patterns)
 
-    def dec(fn):
+    def dec(fn: Callable):
         for name in names if isinstance(names, list) else [names]:
             if isinstance(name, tuple):
                 condition, name = name
@@ -183,7 +209,7 @@ def special(names, pattern):
     return dec
 
 
-def builds_model(*model_types):
+def builds_model(*model_types: Type[HyObject]) -> Callable:
     "Assign the decorated method to _model_compilers for the given types."
     def _dec(fn):
         for t in model_types:
@@ -192,28 +218,45 @@ def builds_model(*model_types):
     return _dec
 
 
+AST_TYPE = TypeVar("AST_TYPE", bound=ast.AST)
+
+
+def with_lineno(ast_type: Type[AST_TYPE]) -> Callable[..., AST_TYPE]:
+    """Factory method for wrapping an ``ast.AST`` class with a ``HyObject``'s line numbers
+
+    Equivalent to ``ast.Foo(..., lineno=x.start_line, col_offset=x.start_column) with
+    ``ast.Foo(..., lineno=x.lineno, col_offset=x.col_offset)`` as a fallback if
+    `start_line` or `start_column` is not defined for the ``HyObject`` `x`.
+
+    Examples:
+        ::
+
+           => obj = HyString("Hello World!")
+           => obj.start_line = 5
+           => print(obj.start_line, obj.start_column)
+           5 1
+           => with_lineno(ast.Str)(obj, s=str(obj))
+           ast.Str(value='Hello World!', lineno=5, col_offset=1)
+
+    Args:
+        ast_type: a class from python's ``ast`` module
+
+    Returns:
+        A function that returns an instance of the same type as ``ast_type``.
+        Signature for the wrapper is ``(x: HyObject, **kwargs) -> AST_TYPE`` where
+        ``kwargs`` is passed through the ``ast_type`` constructor.
+    """
+    def wrapped(x: HyObject, **kwargs):
+        return ast_type(
+            lineno=getattr(x, "start_line", getattr(x, "lineno", None)),
+            col_offset=getattr(x, "start_column", getattr(x, "col_offset", None)),
+            **kwargs
+        )
+
+    return wrapped
+
+
 # Internal Compiler Classes ###################################################
-class Asty(object):
-    """
-    Provide asty.Foo(x, ...) as shorthand for
-    ast.Foo(..., lineno=x.start_line, col_offset=x.start_column) or
-    ast.Foo(..., lineno=x.lineno, col_offset=x.col_offset)
-    """
-
-    def __getattr__(self, name):
-        @staticmethod
-        def f(x, **kwargs):
-            original_ast_class = getattr(ast, name)
-            return original_ast_class(
-                lineno=getattr(x, "start_line", getattr(x, "lineno", None)),
-                col_offset=getattr(x, "start_column", getattr(x, "col_offset", None)),
-                **kwargs
-            )
-
-        setattr(Asty, name, f)
-        return getattr(Asty, name)
-
-
 class Result(object):
     """
     Smart representation of the result of a hy->AST compilation
@@ -240,37 +283,36 @@ class Result(object):
     """
     __slots__ = ("stmts", "temp_variables", "_expr", "__used_expr")
 
-    def __init__(self, *args, **kwargs):
-        if args:
-            # emulate kw-only args for future bits.
-            raise TypeError("Yo: Hacker: don't pass me real args, dingus")
+    def __init__(
+        self,
+        *,
+        stmts: Optional[Sequence[Union[ast.stmt, ast.excepthandler]]] = None,
+        expr: Optional[ast.expr] = None,
+        temp_variables: Optional[
+            Sequence[Union[ast.Name, ast.FunctionDef, ast.AsyncFunctionDef]]
+        ] = None
+    ):
 
-        self.stmts = []
-        self.temp_variables = []
-        self._expr = None
+        self.stmts: Sequence[Union[ast.stmt, ast.excepthandler]] = stmts or []
+        self.temp_variables: Sequence[
+            Union[ast.Name, ast.FunctionDef, ast.AsyncFunctionDef]
+        ] = (temp_variables or [])
+        self._expr: Optional[ast.expr] = expr
 
-        self.__used_expr = False
-
-        # XXX: Make sure we only have AST where we should.
-        for kwarg in kwargs:
-            if kwarg not in ["stmts", "expr", "temp_variables"]:
-                raise TypeError(
-                    "%s() got an unexpected keyword argument '%s'" % (
-                        self.__class__.__name__, kwarg))
-            setattr(self, kwarg, kwargs[kwarg])
+        self.__used_expr: bool = False
 
     @property
-    def expr(self):
+    def expr(self) -> Optional[ast.expr]:
         self.__used_expr = True
         return self._expr
 
     @expr.setter
-    def expr(self, value):
+    def expr(self, value: Optional[ast.expr]):
         self.__used_expr = False
         self._expr = value
 
     @property
-    def lineno(self):
+    def lineno(self) -> Optional[int]:
         if self._expr is not None:
             return self._expr.lineno
         elif self.stmts:
@@ -279,7 +321,7 @@ class Result(object):
             return None
 
     @property
-    def col_offset(self):
+    def col_offset(self) -> Optional[int]:
         if self._expr is not None:
             return self._expr.col_offset
         elif self.stmts:
@@ -287,12 +329,12 @@ class Result(object):
         else:
             return None
 
-    def is_expr(self):
+    def is_expr(self) -> bool:
         """Check whether I am a pure expression"""
-        return self._expr and not self.stmts
+        return bool(self._expr and not self.stmts)
 
     @property
-    def force_expr(self):
+    def force_expr(self) -> Union[ast.Constant, ast.expr]:
         """Force the expression context of the Result.
 
         If there is no expression context, we return a "None" expression.
@@ -304,7 +346,7 @@ class Result(object):
             lineno=self.stmts[-1].lineno if self.stmts else 0,
             col_offset=self.stmts[-1].col_offset if self.stmts else 0)
 
-    def expr_as_stmt(self):
+    def expr_as_stmt(self) -> "Result":
         """Convert the Result's expression context to a statement
 
         This is useful when we want to use the stored expression in a
@@ -317,10 +359,10 @@ class Result(object):
         If there is no expression context, return an empty result.
         """
         if self.expr and not (isinstance(self.expr, ast.Name) and self.stmts):
-            return Result() + asty.Expr(self.expr, value=self.expr)
+            return Result() + with_lineno(ast.Expr)(self.expr, value=self.expr)
         return Result()
 
-    def rename(self, new_name):
+    def rename(self, new_name: str):
         """Rename the Result's temporary variables to a `new_name`.
 
         We know how to handle ast.Names and ast.FunctionDefs.
@@ -329,7 +371,7 @@ class Result(object):
         for var in self.temp_variables:
             if isinstance(var, ast.Name):
                 var.id = new_name
-                var.arg = new_name
+                # var.arg = new_name  # TODO: Check if can be removed
             elif isinstance(var, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 var.name = new_name
             else:
@@ -337,7 +379,9 @@ class Result(object):
                     var.__class__.__name__))
         self.temp_variables = []
 
-    def __add__(self, other):
+    def __add__(
+        self, other: Union["Result", ast.stmt, ast.expr, ast.excepthandler, ast.AST]
+    ) -> "Result":
         # If we add an ast statement, convert it first
         if isinstance(other, ast.stmt):
             return self + Result(stmts=[other])
@@ -354,7 +398,7 @@ class Result(object):
                 self, other))
 
         # Check for expression context clobbering
-        if self.expr and not self.__used_expr:
+        if self.expr and other.expr and not self.__used_expr:
             traceback.print_stack()
             print("Bad boy clobbered expr %s with %s" % (
                 ast.dump(self.expr),
@@ -362,11 +406,17 @@ class Result(object):
 
         # Fairly obvious addition
         result = Result()
-        result.stmts = self.stmts + other.stmts
+        result.stmts = [*self.stmts, *other.stmts]
         result.expr = other.expr
         result.temp_variables = other.temp_variables
 
         return result
+
+    def __repr__(self):
+        return "Result(stmts=[%s], expr=%s)" % (
+            ", ".join(ast.dump(x) for x in self.stmts),
+            ast.dump(self.expr) if self.expr else None,
+        )
 
     def __str__(self):
         return "Result(stmts=[%s], expr=%s)" % (
@@ -379,34 +429,30 @@ class Result(object):
 OPTIONAL_ANNOTATION = maybe(pvalue("annotate*", FORM))
 """Parse an annotation setting."""
 
-asty = Asty()
-"""Wrapper instance around python's `ast` to make tracking `lineno`'s easier.
-See `compiler.Asty` for more info.
-"""
-
 
 # Compiler ####################################################################
 class HyASTCompiler(object):
     """A Hy-to-Python AST compiler"""
 
-    def __init__(self, module: Union[str, types.ModuleType], filename: str = None,
+    def __init__(self, module: Union[str, types.ModuleType], filename: str = "<string>",
                  source: str = None):
         """
         Args:
             module: Module name or object in which the Hy tree is evaluated.
             filename (optional): The name of the file for the source to be compiled.
                 This is optional information for informative error messages and
-                debugging.
+                debugging. Will default to ``"<string>"`` if unspecified.
             source (optional): The source for the file, if any, being compiled.
-                This is optional information for informative error messages and debugging.
+                This is optional information for informative error messages and
+                debugging.
         """
         self.anon_var_count = 0
         self.temp_if = None
 
-        if not inspect.ismodule(module):
-            self.module = importlib.import_module(module)
-        else:
+        if isinstance(module, types.ModuleType):
             self.module = module
+        else:
+            self.module = importlib.import_module(module)
 
         self.module_name = self.module.__name__
 
@@ -417,16 +463,16 @@ class HyASTCompiler(object):
         # compilation.
         self.module.__dict__.setdefault("__macros__", {})
 
-    def get_anon_var(self):
+    def get_anon_var(self) -> str:
         self.anon_var_count += 1
         return "_hy_anon_var_%s" % self.anon_var_count
 
-    def compile_atom(self, atom):
+    def compile_atom(self, atom: HyObject) -> Result:
         # Compilation methods may mutate the atom, so copy it first.
         atom = copy.copy(atom)
         return Result() + _model_compilers[type(atom)](self, atom)
 
-    def compile(self, tree):
+    def compile(self, tree: Optional[HyObject]) -> Result:
         if tree is None:
             return Result()
         try:
@@ -447,10 +493,15 @@ class HyASTCompiler(object):
             exc_msg = "Internal Compiler Bug 😱\n⤷ {}".format(f_exc)
             reraise(HyCompileError, HyCompileError(exc_msg), sys.exc_info()[2])
 
-    def _syntax_error(self, expr, message):
+    def _syntax_error(self, expr: Any, message: str) -> HySyntaxError:
         return HySyntaxError(message, expr, self.filename, self.source)
 
-    def _compile_collect(self, exprs, with_kwargs=False, dict_display=False):
+    def _compile_collect(
+        self,
+        exprs: Sequence[HyObject],
+        with_kwargs: bool = False,
+        dict_display: bool = False,
+    ) -> Tuple[List[ast.expr], Result, List[ast.keyword]]:
         """Collect the expression contexts from a list of compiled expression.
 
         Args:
@@ -482,12 +533,12 @@ class HyASTCompiler(object):
         for expr in exprs_iter:
 
             if is_unpack("mapping", expr):
-                ret += self.compile(expr[1])
+                ret += self.compile(cast(HyExpression, expr)[1])
                 if dict_display:
                     compiled_exprs.append(None)
                     compiled_exprs.append(ret.force_expr)
                 elif with_kwargs:
-                    keywords.append(asty.keyword(
+                    keywords.append(with_lineno(ast.keyword)(
                         expr, arg=None, value=ret.force_expr))
 
             elif with_kwargs and isinstance(expr, HyKeyword):
@@ -508,7 +559,7 @@ class HyASTCompiler(object):
 
                 arg = str(expr)[1:]
                 keywords.append(
-                    asty.keyword(
+                    with_lineno(ast.keyword)(
                         expr, arg=mangle(arg), value=compiled_value.force_expr
                     )
                 )
@@ -519,7 +570,7 @@ class HyASTCompiler(object):
 
         return compiled_exprs, ret, keywords
 
-    def _compile_branch(self, exprs):
+    def _compile_branch(self, exprs: List[HyObject]) -> Result:
         """Compile a sequence of exprs into a ``Result`` with last expr as the expr context
 
         Used to compile ``do`` statements, both explicit and implicit (i.e. the body
@@ -540,21 +591,28 @@ class HyASTCompiler(object):
             ret += self.compile(exprs[-1])
         return ret
 
-    def _storeize(self, expr, name, func=None):
+    def _storeize(
+        self,
+        expr: HyObject,
+        name: Union[Result, ast.expr],
+        func: Optional[Union[Type[ast.Load], Type[ast.Store], Type[ast.Del]]] = None,
+    ) -> Union[
+        ast.Tuple, ast.List, ast.Name, ast.Subscript, ast.Attribute, ast.Starred
+    ]:
         """Return a new `name` object with an ast.Store() context
 
         Args:
             expr: the expression tree ``name`` is drawn from. Used for syntax errors
             name: identifier to compile into an ``ast`` var reference. Tuples and lists
-                represent iterable unpacking syntax with multiple ``ast`` var references's
-                returned
+                represent iterable unpacking syntax with multiple ``ast`` var
+                references's returned
             func: class constructor for ``ast.Name``'s ``ctx`` attribute.
                 Either ``ast.Load``, ``ast.Del``, or ``ast.Store``. Will default
                 to ``ast.Store`` if none is given.
 
         Returns:
-            an ``ast`` variable reference (or sequence of them for unpacking assignments)
-            with the appropriate ``ctx`` set
+            an ``ast`` variable reference (or sequence of them for unpacking
+            assignments) with the appropriate ``ctx`` set
 
         Raises:
             HySyntaxError: if attempting to assign/delete an invalid ``name``
@@ -571,7 +629,8 @@ class HyASTCompiler(object):
                 raise self._syntax_error(
                     expr, "Can't assign or delete a non-expression"
                 )
-            name = name.expr
+            # name.expr can't be none after checking is_expr
+            name = cast(ast.expr, name.expr)
 
         if isinstance(name, (ast.Tuple, ast.List)):
             typ = type(name)
@@ -611,7 +670,9 @@ class HyASTCompiler(object):
             raise self._syntax_error(name, "Can't assign to constant")
         return name
 
-    def _render_quoted_form(self, form, level):
+    def _render_quoted_form(
+        self, form: HyObject, level: int
+    ) -> Tuple[HyObject, bool]:
         """
         Render a quoted form as a new HyExpression.
 
@@ -629,19 +690,24 @@ class HyASTCompiler(object):
         if isinstance(form, HyExpression) and form and (
                 isinstance(form[0], HySymbol)):
             op = unmangle(mangle(form[0]))
-        if level == 0 and op in ("unquote", "unquote-splice"):
-            if len(form) != 2:
-                raise HyTypeError("`%s' needs 1 argument, got %s" % op, len(form) - 1,
-                                  self.filename, form, self.source)
-            return form[1], op == "unquote-splice"
-        elif op == "quasiquote":
-            level += 1
-        elif op in ("unquote", "unquote-splice"):
-            level -= 1
+            if level == 0 and op in ("unquote", "unquote-splice"):
+                if len(form) != 2:
+                    raise HyTypeError(
+                        "`%s' needs 1 argument, got %s" % op,
+                        len(form) - 1,
+                        self.filename,
+                        form,
+                        self.source,
+                    )
+                return form[1], op == "unquote-splice"
+            elif op == "quasiquote":
+                level += 1
+            elif op in ("unquote", "unquote-splice"):
+                level -= 1
 
         hytype = form.__class__
         name = ".".join((hytype.__module__, hytype.__name__))
-        body = [form]
+        body: Sequence[Any] = [form]
 
         if isinstance(form, HySequence):
             contents = []
@@ -679,39 +745,49 @@ class HyASTCompiler(object):
         return ret, False
 
     @special(["quote", "quasiquote"], [FORM])
-    def compile_quote(self, expr, root, arg):
+    def compile_quote(self, expr: HyExpression, root: str, arg: HyObject) -> Result:
         level = INF if root == "quote" else 0   # Only quasiquotes can unquote
         stmts, _ = self._render_quoted_form(arg, level)
         ret = self.compile(stmts)
         return ret
 
     @special("unpack-iterable", [FORM])
-    def compile_unpack_iterable(self, expr, root, arg):
+    def compile_unpack_iterable(
+        self, expr: HyExpression, root: str, arg: HyObject
+    ) -> Result:
         ret = self.compile(arg)
-        ret += asty.Starred(expr, value=ret.force_expr, ctx=ast.Load())
+        ret += with_lineno(ast.Starred)(expr, value=ret.force_expr, ctx=ast.Load())
         return ret
 
     @special("do", [many(FORM)])
-    def compile_do(self, expr, root, body):
+    def compile_do(self, expr: HyExpression, root: str, body: List[HyObject]) -> Result:
         return self._compile_branch(body)
 
     @special("raise", [maybe(FORM), maybe(sym(":from") + FORM)])
-    def compile_raise_expression(self, expr, root, exc, cause):
+    def compile_raise_expression(
+        self,
+        expr: HyExpression,
+        root: str,
+        exc: Optional[HyObject],
+        cause: Optional[HyObject],
+    ) -> Result:
         ret = Result()
+        exc_ast = None
+        cause_ast = None
 
         if exc is not None:
-            exc = self.compile(exc)
-            ret += exc
-            exc = exc.force_expr
+            exc_ret = self.compile(exc)
+            ret += exc_ret
+            exc_ast = exc_ret.force_expr
 
         if cause is not None:
-            cause = self.compile(cause)
-            ret += cause
-            cause = cause.force_expr
+            cause_ret = self.compile(cause)
+            ret += cause_ret
+            cause_ast = cause_ret.force_expr
 
-        return ret + asty.Raise(
-            expr, type=ret.expr, exc=exc,
-            inst=None, tback=None, cause=cause)
+        return ret + with_lineno(ast.Raise)(
+            expr, type=ret.expr, exc=exc_ast,
+            inst=None, tback=None, cause=cause_ast)
 
     @special(
         "try",
@@ -728,57 +804,66 @@ class HyASTCompiler(object):
             maybe(dolike("finally")),
         ],
     )
-    def compile_try_expression(self, expr, root, body, catchers, orelse, finalbody):
-        body = self._compile_branch(body)
+    def compile_try_expression(
+        self,
+        expr: HyExpression,
+        root: str,
+        body: List[HyObject],
+        catchers: List[HyExpression],
+        orelse: List[HyObject],
+        finalbody: List[HyObject],
+    ) -> Result:
+        body_ret: Result = self._compile_branch(body)
 
-        return_var = asty.Name(
+        return_var = with_lineno(ast.Name)(
             expr, id=mangle(self.get_anon_var()), ctx=ast.Store())
 
         handler_results = Result()
-        handlers = []
+        handlers_ast = []
         for catcher in catchers:
             handler_results += self._compile_catch_expression(
                 catcher, return_var, *catcher)
-            handlers.append(handler_results.stmts.pop())
+            *handler_results.stmts, last_catch_stmt = handler_results.stmts
+            handlers_ast.append(last_catch_stmt)
 
         if orelse is None:
-            orelse = []
+            orelse_ast = []
         else:
-            orelse = self._compile_branch(orelse)
-            orelse += asty.Assign(expr, targets=[return_var],
-                                  value=orelse.force_expr)
-            orelse += orelse.expr_as_stmt()
-            orelse = orelse.stmts
+            orelse_ret = self._compile_branch(orelse)
+            orelse_ret += with_lineno(ast.Assign)(expr, targets=[return_var],
+                                                  value=orelse_ret.force_expr)
+            orelse_ret += orelse_ret.expr_as_stmt()
+            orelse_ast = orelse_ret.stmts
 
         if finalbody is None:
-            finalbody = []
+            finalbody_ast = []
         else:
-            finalbody = self._compile_branch(finalbody)
-            finalbody += finalbody.expr_as_stmt()
-            finalbody = finalbody.stmts
+            finalbody_ret = self._compile_branch(finalbody)
+            finalbody_ret += finalbody_ret.expr_as_stmt()
+            finalbody_ast = finalbody_ret.stmts
 
         # Using (else) without (except) is verboten!
-        if orelse and not handlers:
+        if orelse_ast and not handlers_ast:
             raise self._syntax_error(expr, "`try' cannot have `else' without `except'")
         # Likewise a bare (try) or (try BODY).
-        if not (handlers or finalbody):
+        if not (handlers_ast or finalbody_ast):
             raise self._syntax_error(
                 expr, "`try' must have an `except' or `finally' clause"
             )
 
         returnable = Result(
-            expr=asty.Name(expr, id=return_var.id, ctx=ast.Load()),
+            expr=with_lineno(ast.Name)(expr, id=return_var.id, ctx=ast.Load()),
             temp_variables=[return_var])
-        body += body.expr_as_stmt() if orelse else asty.Assign(
-            expr, targets=[return_var], value=body.force_expr)
-        body = body.stmts or [asty.Pass(expr)]
+        body_ret += body_ret.expr_as_stmt() if orelse_ast else with_lineno(ast.Assign)(
+            expr, targets=[return_var], value=body_ret.force_expr)
+        body_ast = body_ret.stmts or [with_lineno(ast.Pass)(expr)]
 
-        x = asty.Try(
+        x = with_lineno(ast.Try)(
             expr,
-            body=body,
-            handlers=handlers,
-            orelse=orelse,
-            finalbody=finalbody)
+            body=body_ast,
+            handlers=handlers_ast,
+            orelse=orelse_ast,
+            finalbody=finalbody_ast)
         return handler_results + x + returnable
 
     def _compile_catch_expression(self, expr, var, exceptions, body):
@@ -802,7 +887,9 @@ class HyASTCompiler(object):
             if len(exceptions_list):
                 # [FooBar BarFoo] → catch Foobar and BarFoo exceptions
                 elements, types, _ = self._compile_collect(exceptions_list)
-                types += asty.Tuple(exceptions_list, elts=elements, ctx=ast.Load())
+                types += with_lineno(ast.Tuple)(
+                    exceptions_list, elts=elements, ctx=ast.Load()
+                )
             else:
                 # [] → all exceptions caught
                 types = Result()
@@ -810,17 +897,24 @@ class HyASTCompiler(object):
             types = self.compile(exceptions_list)
 
         body = self._compile_branch(body)
-        body += asty.Assign(expr, targets=[var], value=body.force_expr)
+        body += with_lineno(ast.Assign)(expr, targets=[var], value=body.force_expr)
         body += body.expr_as_stmt()
 
-        return types + asty.ExceptHandler(
+        return types + with_lineno(ast.ExceptHandler)(
             expr, type=types.expr, name=name,
-            body=body.stmts or [asty.Pass(expr)])
+            body=body.stmts or [with_lineno(ast.Pass)(expr)])
 
     @special("if*", [FORM, FORM, maybe(FORM)])
-    def compile_if(self, expr, _, cond, body, orel_expr):
-        cond = self.compile(cond)
-        body = self.compile(body)
+    def compile_if(
+        self,
+        expr: HyExpression,
+        _: str,
+        cond_expr: HyObject,
+        body_expr: HyObject,
+        orel_expr: Optional[HyObject],
+    ) -> Result:
+        cond = self.compile(cond_expr)
+        body = self.compile(body_expr)
 
         nested = root = False
         orel = Result()
@@ -842,13 +936,13 @@ class HyASTCompiler(object):
                 branch = orel
             if branch is not None:
                 if self.temp_if and branch.stmts:
-                    name = asty.Name(expr,
-                                     id=mangle(self.temp_if),
-                                     ctx=ast.Store())
+                    name = with_lineno(ast.Name)(expr,
+                                                 id=mangle(self.temp_if),
+                                                 ctx=ast.Store())
 
-                    branch += asty.Assign(expr,
-                                          targets=[name],
-                                          value=body.force_expr)
+                    branch += with_lineno(ast.Assign)(expr,
+                                                      targets=[name],
+                                                      value=body.force_expr)
 
                 return branch
 
@@ -859,38 +953,37 @@ class HyASTCompiler(object):
             # We have statements in our bodies
             # Get a temporary variable for the result storage
             var = self.temp_if or self.get_anon_var()
-            name = asty.Name(expr,
-                             id=mangle(var),
-                             ctx=ast.Store())
+            name = with_lineno(ast.Name)(expr,
+                                         id=mangle(var),
+                                         ctx=ast.Store())
 
             # Store the result of the body
-            body += asty.Assign(expr,
-                                targets=[name],
-                                value=body.force_expr)
+            body += with_lineno(ast.Assign)(expr,
+                                            targets=[name],
+                                            value=body.force_expr)
 
             # and of the else clause
             if not nested or not orel.stmts or (not root and
                var != self.temp_if):
-                orel += asty.Assign(expr,
-                                    targets=[name],
-                                    value=orel.force_expr)
+                orel += with_lineno(ast.Assign)(
+                    expr, targets=[name], value=orel.force_expr
+                )
 
             # Then build the if
-            ret += asty.If(expr,
-                           test=ret.force_expr,
-                           body=body.stmts,
-                           orelse=orel.stmts)
+            ret += with_lineno(ast.If)(expr,
+                                       test=ret.force_expr,
+                                       body=body.stmts,
+                                       orelse=orel.stmts)
 
             # And make our expression context our temp variable
-            expr_name = asty.Name(expr, id=mangle(var), ctx=ast.Load())
+            expr_name = with_lineno(ast.Name)(expr, id=mangle(var), ctx=ast.Load())
 
             ret += Result(expr=expr_name, temp_variables=[expr_name, name])
         else:
             # Just make that an if expression
-            ret += asty.IfExp(expr,
-                              test=ret.force_expr,
-                              body=body.force_expr,
-                              orelse=orel.force_expr)
+            ret += with_lineno(ast.IfExp)(
+                expr, test=ret.force_expr, body=body.force_expr, orelse=orel.force_expr
+            )
 
         if root:
             self.temp_if = None
@@ -898,14 +991,19 @@ class HyASTCompiler(object):
         return ret
 
     @special(["break", "continue"], [])
-    def compile_break_or_continue_expression(self, expr, root):
-        return (asty.Break if root == "break" else asty.Continue)(expr)
+    def compile_break_or_continue_expression(
+        self, expr: HyExpression, root: str
+    ) -> Result:
+        node = with_lineno(ast.Break) if root == "break" else with_lineno(ast.Continue)
+        return Result(stmts=[node(expr)])
 
     @special("assert", [FORM, maybe(FORM)])
-    def compile_assert_expression(self, expr, root, test, msg):
+    def compile_assert_expression(
+        self, expr: HyExpression, root: str, test: HyObject, msg: Optional[HyObject]
+    ) -> Result:
         if msg is None or type(msg) is HySymbol:
             ret = self.compile(test)
-            return ret + asty.Assert(
+            return ret + with_lineno(ast.Assert)(
                 expr,
                 test=ret.force_expr,
                 msg=(None if msg is None else self.compile(msg).force_expr))
@@ -927,30 +1025,46 @@ class HyASTCompiler(object):
         )
 
     @special(["global", "nonlocal"], [oneplus(SYM)])
-    def compile_global_or_nonlocal(self, expr, root, syms):
-        node = asty.Global if root == "global" else asty.Nonlocal
-        return node(expr, names=list(map(mangle, syms)))
+    def compile_global_or_nonlocal(
+        self, expr: HyExpression, root: str, syms: List[HyObject]
+    ) -> Result:
+        node = with_lineno(ast.Global) if root == "global" else with_lineno(ast.Nonlocal)
+        return Result(stmts=[node(expr, names=list(map(mangle, syms)))])
 
     @special("yield", [maybe(FORM)])
-    def compile_yield_expression(self, expr, root, arg):
+    def compile_yield_expression(
+        self, expr: HyExpression, root: str, arg: Optional[HyObject]
+    ) -> Result:
         ret = Result()
         if arg is not None:
             ret += self.compile(arg)
-        return ret + asty.Yield(expr, value=ret.force_expr)
+        return ret + with_lineno(ast.Yield)(expr, value=ret.force_expr)
 
     @special(["yield-from", "await"], [FORM])
-    def compile_yield_from_or_await_expression(self, expr, root, arg):
+    def compile_yield_from_or_await_expression(
+        self, expr: HyExpression, root: str, arg: HyObject
+    ) -> Result:
         ret = Result() + self.compile(arg)
-        node = asty.YieldFrom if root == "yield-from" else asty.Await
+        node = (
+            with_lineno(ast.YieldFrom)
+            if root == "yield-from"
+            else with_lineno(ast.Await)
+        )
         return ret + node(expr, value=ret.force_expr)
 
     @special("get", [FORM, oneplus(FORM)])
-    def compile_index_expression(self, expr, name, obj, indices):
-        indices, ret, _ = self._compile_collect(indices)
+    def compile_index_expression(
+        self,
+        expr: HyExpression,
+        name: str,
+        obj: HyObject,
+        indices_exprs: List[HyObject],
+    ) -> Result:
+        indices, ret, _ = self._compile_collect(indices_exprs)
         ret += self.compile(obj)
 
         for ix in indices:
-            ret += asty.Subscript(
+            ret += with_lineno(ast.Subscript)(
                 expr,
                 value=ret.force_expr,
                 slice=ast.Index(value=ix),
@@ -959,18 +1073,24 @@ class HyASTCompiler(object):
         return ret
 
     @special(".", [FORM, many(SYM | brackets(FORM))])
-    def compile_attribute_access(self, expr, name, invocant, keys):
+    def compile_attribute_access(
+        self,
+        expr: HyExpression,
+        name: str,
+        invocant: HyObject,
+        keys: List[Union[HySymbol, HyList]],
+    ) -> Result:
         ret = self.compile(invocant)
 
         for attr in keys:
             if isinstance(attr, HySymbol):
-                ret += asty.Attribute(attr,
-                                      value=ret.force_expr,
-                                      attr=mangle(attr),
-                                      ctx=ast.Load())
+                ret += with_lineno(ast.Attribute)(attr,
+                                                  value=ret.force_expr,
+                                                  attr=mangle(attr),
+                                                  ctx=ast.Load())
             else:  # attr is a HyList
                 compiled_attr = self.compile(attr[0])
-                ret = compiled_attr + ret + asty.Subscript(
+                ret = compiled_attr + ret + with_lineno(ast.Subscript)(
                     attr,
                     value=ret.force_expr,
                     slice=ast.Index(value=compiled_attr.force_expr),
@@ -979,9 +1099,11 @@ class HyASTCompiler(object):
         return ret
 
     @special("del", [many(FORM)])
-    def compile_del_expression(self, expr, name, args):
+    def compile_del_expression(
+        self, expr: HyExpression, name: str, args: List[HyObject]
+    ) -> Result:
         if not args:
-            return asty.Pass(expr)
+            return Result(stmts=[with_lineno(ast.Pass)(expr)])
 
         del_targets = []
         ret = Result()
@@ -991,36 +1113,51 @@ class HyASTCompiler(object):
             del_targets.append(self._storeize(target, compiled_target,
                                               ast.Del))
 
-        return ret + asty.Delete(expr, targets=del_targets)
+        return ret + with_lineno(ast.Delete)(expr, targets=del_targets)
 
     @special("cut", [FORM, maybe(FORM), maybe(FORM), maybe(FORM)])
-    def compile_cut_expression(self, expr, name, obj, lower, upper, step):
+    def compile_cut_expression(
+        self,
+        expr: HyExpression,
+        name: str,
+        obj: HyObject,
+        lower: Optional[HyObject],
+        upper: Optional[HyObject],
+        step: Optional[HyObject],
+    ) -> Result:
         ret = [Result()]
 
         def c(e):
             ret[0] += self.compile(e)
             return ret[0].force_expr
 
-        s = asty.Subscript(
+        s = with_lineno(ast.Subscript)(
             expr,
             value=c(obj),
-            slice=asty.Slice(expr, lower=c(lower), upper=c(upper), step=c(step)),
+            slice=with_lineno(ast.Slice)(
+                expr, lower=c(lower), upper=c(upper), step=c(step)
+            ),
             ctx=ast.Load(),
         )
         return ret[0] + s
 
     @special("with-decorator", [oneplus(FORM)])
-    def compile_decorate_expression(self, expr, name, args):
+    def compile_decorate_expression(
+        self, expr: HyExpression, name: str, args: List[HyObject]
+    ) -> Result:
         decs, fn = args[:-1], self.compile(args[-1])
-        if not fn.stmts or not isinstance(fn.stmts[-1], _decoratables):
+        decorated_fn = fn.stmts[-1] if fn.stmts else None
+        if decorated_fn is None or not isinstance(decorated_fn, _decoratables):
             raise self._syntax_error(args[-1], "Decorated a non-function")
         decs, ret, _ = self._compile_collect(decs)
-        fn.stmts[-1].decorator_list = decs + fn.stmts[-1].decorator_list
+        decorated_fn.decorator_list = decs + decorated_fn.decorator_list
         return ret + fn
 
     @special(["with*", "with/a*"],
              [brackets(FORM, maybe(FORM)), many(FORM)])
-    def compile_with_expression(self, expr, root, args, body):
+    def compile_with_expression(
+        self, expr: HyExpression, root: str, args, body
+    ) -> Result:
         thing, ctx = (None, args[0]) if args[1] is None else args
         if thing is not None:
             thing = self._storeize(thing, self.compile(thing))
@@ -1030,14 +1167,14 @@ class HyASTCompiler(object):
 
         # Store the result of the body in a tempvar
         var = self.get_anon_var()
-        name = asty.Name(expr, id=mangle(var), ctx=ast.Store())
-        body += asty.Assign(expr, targets=[name], value=body.force_expr)
+        name = with_lineno(ast.Name)(expr, id=mangle(var), ctx=ast.Store())
+        body += with_lineno(ast.Assign)(expr, targets=[name], value=body.force_expr)
         # Initialize the tempvar to None in case the `with` exits
         # early with an exception.
-        initial_assign = asty.Assign(
-            expr, targets=[name], value=asty.Constant(expr, value=None))
+        initial_assign = with_lineno(ast.Assign)(
+            expr, targets=[name], value=with_lineno(ast.Constant)(expr, value=None))
 
-        node = asty.With if root == "with*" else asty.AsyncWith
+        node = with_lineno(ast.With) if root == "with*" else with_lineno(ast.AsyncWith)
         the_with = node(expr,
                         context_expr=ctx.force_expr,
                         optional_vars=thing,
@@ -1047,7 +1184,7 @@ class HyASTCompiler(object):
 
         ret = Result(stmts=[initial_assign]) + ctx + the_with
         # And make our expression context our temp variable
-        expr_name = asty.Name(expr, id=mangle(var), ctx=ast.Load())
+        expr_name = with_lineno(ast.Name)(expr, id=mangle(var), ctx=ast.Load())
 
         ret += Result(expr=expr_name)
         # We don't give the Result any temp_vars because we don't want
@@ -1057,9 +1194,11 @@ class HyASTCompiler(object):
         return ret
 
     @special(",", [many(FORM)])
-    def compile_tuple(self, expr, root, args):
+    def compile_tuple(
+        self, expr: HyExpression, root: str, args: List[HyObject]
+    ) -> Result:
         elements, ret, _ = self._compile_collect(args)
-        return ret + asty.Tuple(expr, elts=elements, ctx=ast.Load())
+        return ret + with_lineno(ast.Tuple)(expr, elts=elements, ctx=ast.Load())
 
     _loopers = many(
         tag("setv", sym(":setv") + FORM + FORM) |
@@ -1068,46 +1207,78 @@ class HyASTCompiler(object):
         tag("afor", sym(":async") + FORM + FORM) |
         tag("for", FORM + FORM))
 
-    @special(
-        ["for"], [brackets(_loopers), many(notpexpr("else")) + maybe(dolike("else"))]
-    )
-    @special(["lfor", "sfor", "gfor"], [_loopers, FORM])
-    @special(["dfor"], [_loopers, brackets(FORM, FORM)])
-    def compile_comprehension(self, expr, root, parts, final):
-        node_class = {
-            "for":  asty.For,
-            "lfor": asty.ListComp,
-            "dfor": asty.DictComp,
-            "sfor": asty.SetComp,
-            "gfor": asty.GeneratorExp}[root]
-        is_for = root == "for"
-
+    @special("for", [brackets(_loopers), many(notpexpr("else")), maybe(dolike("else"))])
+    def compile_for(
+        self,
+        expr: HyExpression,
+        root: str,
+        bracketed_parts: HyList,
+        body_exprs: List[HyObject],
+        else_expr: Optional[List[HyObject]],
+    ) -> Result:
         orel = []
-        if is_for:
-            # Get the `else`.
-            body, else_expr = final
-            if else_expr is not None:
-                orel.append(self._compile_branch(else_expr))
-                orel[0] += orel[0].expr_as_stmt()
-        else:
-            # Get the final value (and for dictionary
-            # comprehensions, the final key).
-            if node_class is asty.DictComp:
-                key, element = map(self.compile, final)
+        if else_expr is not None:
+            orel.append(self._compile_branch(else_expr))
+            orel[0] += orel[0].expr_as_stmt()
+
+        parts: List[Tag] = bracketed_parts[0]
+
+        if not parts:
+            return Result(expr=with_lineno(ast.Constant)(expr, value=None))
+
+        parts = [
+            Tag(p.tag, self.compile(p.value) if p.tag in ["if", "do"] else [
+                self._storeize(p.value[0], self.compile(p.value[0])),
+                self.compile(p.value[1])])
+            for p in parts]
+
+        def f(parts: List[Tag]) -> Result:
+            # This function is called recursively to construct
+            # the nested loop.
+            if not parts:
+                if body_exprs:
+                    body = self._compile_branch(body_exprs)
+                    return body + body.expr_as_stmt()
+                return Result(stmts=[with_lineno(ast.Pass)(expr)])
             else:
-                key = None
-                element = self.compile(final)
+                (tagname, v), parts = parts[0], parts[1:]
+                if tagname in ("for", "afor"):
+                    orelse = orel and orel.pop().stmts
+                    node = (
+                        with_lineno(ast.AsyncFor)
+                        if tagname == "afor"
+                        else with_lineno(ast.For)
+                    )
+                    return v[1] + node(
+                        v[1], target=v[0], iter=v[1].force_expr, body=f(parts).stmts,
+                        orelse=orelse)
+                elif tagname == "setv":
+                    return v[1] + with_lineno(ast.Assign)(
+                        v[1], targets=[v[0]], value=v[1].force_expr) + f(parts)
+                elif tagname == "if":
+                    return v + with_lineno(ast.If)(
+                        v, test=v.force_expr, body=f(parts).stmts, orelse=[])
+                elif tagname == "do":
+                    return v + v.expr_as_stmt() + f(parts)
+                else:
+                    raise ValueError("can't happen")
+        return f(parts)
+
+    @special("dfor", [_loopers, brackets(FORM, FORM)])
+    def compile_dict_comprehension(
+        self,
+        expr: HyExpression,
+        root: str,
+        parts: List[Tag],
+        final: Tuple[HyObject, HyObject],
+    ) -> Result:
+        key, element = map(self.compile, final)
 
         # Compile the parts.
-        if is_for:
-            parts = parts[0]
         if not parts:
-            return Result(expr=ast.parse({
-                asty.For: "None",
-                asty.ListComp: "[]",
-                asty.DictComp: "{}",
-                asty.SetComp: "{1}.__class__()",
-                asty.GeneratorExp: "(_ for _ in [])"}[node_class]).body[0].value)
+            return Result(expr=with_lineno(ast.Dict)(expr, keys=[], values=[]))
+
+        orel = []
         parts = [
             Tag(p.tag, self.compile(p.value) if p.tag in ["if", "do"] else [
                 self._storeize(p.value[0], self.compile(p.value[0])),
@@ -1116,8 +1287,7 @@ class HyASTCompiler(object):
 
         # Produce a result.
         should_lift_into_function = (
-            is_for
-            or element.stmts
+            element.stmts
             or (key is not None and key.stmts)
             or any(
                 p.tag == "do"
@@ -1137,43 +1307,37 @@ class HyASTCompiler(object):
                 # This function is called recursively to construct
                 # the nested loop.
                 if not parts:
-                    if is_for:
-                        if body:
-                            bd = self._compile_branch(body)
-                            return bd + bd.expr_as_stmt()
-                        return Result(stmts=[asty.Pass(expr)])
-                    if node_class is asty.DictComp:
-                        ret = key + element
-                        val = asty.Tuple(
-                            key, ctx=ast.Load(),
-                            elts=[key.force_expr, element.force_expr])
-                    else:
-                        ret = element
-                        val = element.force_expr
-                    return ret + asty.Expr(
-                        element, value=asty.Yield(element, value=val))
+                    ret = key + element
+                    val = with_lineno(ast.Tuple)(
+                        key, ctx=ast.Load(), elts=[key.force_expr, element.force_expr]
+                    )
+                    return ret + with_lineno(ast.Expr)(
+                        element, value=with_lineno(ast.Yield)(element, value=val))
+
                 (tagname, v), parts = parts[0], parts[1:]
                 if tagname in ("for", "afor"):
                     orelse = orel and orel.pop().stmts
-                    node = asty.AsyncFor if tagname == "afor" else asty.For
+                    node = (
+                        with_lineno(ast.AsyncFor)
+                        if tagname == "afor"
+                        else with_lineno(ast.For)
+                    )
                     return v[1] + node(
                         v[1], target=v[0], iter=v[1].force_expr, body=f(parts).stmts,
                         orelse=orelse)
                 elif tagname == "setv":
-                    return v[1] + asty.Assign(
+                    return v[1] + with_lineno(ast.Assign)(
                         v[1], targets=[v[0]], value=v[1].force_expr) + f(parts)
                 elif tagname == "if":
-                    return v + asty.If(
+                    return v + with_lineno(ast.If)(
                         v, test=v.force_expr, body=f(parts).stmts, orelse=[])
                 elif tagname == "do":
                     return v + v.expr_as_stmt() + f(parts)
                 else:
                     raise ValueError("can't happen")
-            if is_for:
-                return f(parts)
             fname = self.get_anon_var()
             # Define the generator function.
-            ret = Result() + asty.FunctionDef(
+            ret = Result() + with_lineno(ast.FunctionDef)(
                 expr,
                 name=fname,
                 args=ast.arguments(
@@ -1186,13 +1350,12 @@ class HyASTCompiler(object):
             # `{}.__class__(...)` or `{1}.__class__(...)` to get the
             # right type. We don't want to just use e.g. `list(...)`
             # because the name `list` might be rebound.
-            return ret + Result(expr=ast.parse(
-                "{}({}())".format(
-                    {asty.ListComp: "[].__class__",
-                     asty.DictComp: "{}.__class__",
-                     asty.SetComp: "{1}.__class__",
-                     asty.GeneratorExp: ""}[node_class],
-                    fname)).body[0].value)
+            return ret + Result(
+                expr=cast(
+                    ast.Expr,
+                    ast.parse("{}({}())".format("{}.__class__", fname)).body[0],
+                ).value
+            )
 
         # We can produce a real comprehension.
         generators = []
@@ -1204,27 +1367,141 @@ class HyASTCompiler(object):
             elif tagname == "setv":
                 generators.append(ast.comprehension(
                     target=v[0],
-                    iter=asty.Tuple(v[1], elts=[v[1].expr], ctx=ast.Load()),
+                    iter=with_lineno(ast.Tuple)(v[1], elts=[v[1].expr], ctx=ast.Load()),
                     ifs=[], is_async=0))
             elif tagname == "if":
                 generators[-1].ifs.append(v.expr)
             else:
                 raise ValueError("can't happen")
-        if node_class is asty.DictComp:
-            return asty.DictComp(
+        return Result(
+            expr=with_lineno(ast.DictComp)(
                 expr, key=key.expr, value=element.expr, generators=generators
             )
-        return node_class(expr, elt=element.expr, generators=generators)
+        )
+
+    @special(["lfor", "sfor", "gfor"], [_loopers, FORM])
+    def compile_comprehension(
+        self, expr: HyExpression, root: str, parts: List[Tag], final: HyObject
+    ) -> Result:
+        node_class = {
+            "lfor": ast.ListComp,
+            "sfor": ast.SetComp,
+            "gfor": ast.GeneratorExp}[root]
+
+        # Get the final value
+        element = self.compile(final)
+
+        orel = []
+        # Compile the parts.
+        if not parts:
+            return Result(expr=cast(ast.Expr, ast.parse({
+                ast.ListComp: "[]",
+                ast.SetComp: "{1}.__class__()",
+                ast.GeneratorExp: "(_ for _ in [])"}[node_class]).body[0]).value)
+        parts = [
+            Tag(p.tag, self.compile(p.value) if p.tag in ["if", "do"] else [
+                self._storeize(p.value[0], self.compile(p.value[0])),
+                self.compile(p.value[1])])
+            for p in parts]
+
+        # Produce a result.
+        should_lift_into_function = (
+            element.stmts
+            or any(
+                p.tag == "do"
+                or (
+                    p.value[1].stmts
+                    if p.tag in ("for", "afor", "setv")
+                    else p.value.stmts
+                )
+                for p in parts
+            )
+        )
+        if should_lift_into_function:
+            # The desired comprehension can't be expressed as a
+            # real Python comprehension. We'll write it as a nested
+            # loop in a function instead.
+            def f(parts):
+                # This function is called recursively to construct
+                # the nested loop.
+                if not parts:
+                    ret = element
+                    val = element.force_expr
+                    return ret + with_lineno(ast.Expr)(
+                        element, value=with_lineno(ast.Yield)(element, value=val))
+                (tagname, v), parts = parts[0], parts[1:]
+                if tagname in ("for", "afor"):
+                    orelse = orel and orel.pop().stmts
+                    node = (
+                        with_lineno(ast.AsyncFor)
+                        if tagname == "afor"
+                        else with_lineno(ast.For)
+                    )
+                    return v[1] + node(
+                        v[1], target=v[0], iter=v[1].force_expr, body=f(parts).stmts,
+                        orelse=orelse)
+                elif tagname == "setv":
+                    return v[1] + with_lineno(ast.Assign)(
+                        v[1], targets=[v[0]], value=v[1].force_expr) + f(parts)
+                elif tagname == "if":
+                    return v + with_lineno(ast.If)(
+                        v, test=v.force_expr, body=f(parts).stmts, orelse=[])
+                elif tagname == "do":
+                    return v + v.expr_as_stmt() + f(parts)
+                else:
+                    raise ValueError("can't happen")
+            fname = self.get_anon_var()
+            # Define the generator function.
+            ret = Result() + with_lineno(ast.FunctionDef)(
+                expr,
+                name=fname,
+                args=ast.arguments(
+                    args=[], vararg=None, kwarg=None, posonlyargs=[],
+                    kwonlyargs=[], kw_defaults=[], defaults=[]),
+                body=f(parts).stmts,
+                decorator_list=[])
+            # Immediately call the new function. Unless the user asked
+            # for a generator, wrap the call in `[].__class__(...)` or
+            # `{}.__class__(...)` or `{1}.__class__(...)` to get the
+            # right type. We don't want to just use e.g. `list(...)`
+            # because the name `list` might be rebound.
+            return ret + Result(expr=cast(ast.Expr, ast.parse(
+                "{}({}())".format(
+                    {ast.ListComp: "[].__class__",
+                     ast.DictComp: "{}.__class__",
+                     ast.SetComp: "{1}.__class__",
+                     ast.GeneratorExp: ""}[node_class],
+                    fname)).body[0]).value)
+
+        # We can produce a real comprehension.
+        generators = []
+        for tagname, v in parts:
+            if tagname in ("for", "afor"):
+                generators.append(ast.comprehension(
+                    target=v[0], iter=v[1].expr, ifs=[],
+                    is_async=int(tagname == "afor")))
+            elif tagname == "setv":
+                generators.append(ast.comprehension(
+                    target=v[0],
+                    iter=with_lineno(ast.Tuple)(v[1], elts=[v[1].expr], ctx=ast.Load()),
+                    ifs=[], is_async=0))
+            elif tagname == "if":
+                generators[-1].ifs.append(v.expr)
+            else:
+                raise ValueError("can't happen")
+        return with_lineno(node_class)(expr, elt=element.expr, generators=generators)
 
     @special(["not", "~"], [FORM])
-    def compile_unary_operator(self, expr, root, arg):
+    def compile_unary_operator(
+        self, expr: HyExpression, root: str, arg: HyObject
+    ) -> Result:
         ops = {"not": ast.Not,
                "~": ast.Invert}
         operand = self.compile(arg)
-        return operand + asty.UnaryOp(
+        return operand + with_lineno(ast.UnaryOp)(
             expr, op=ops[root](), operand=operand.force_expr)
 
-    def _importlike(*name_types):
+    def _importlike(*name_types: Type[HyObject]) -> List[Parser]:
         name = some(lambda x: isinstance(x, name_types) and "." not in x)
         return [many(
             SYM |
@@ -1234,7 +1511,9 @@ class HyASTCompiler(object):
 
     @special("import", _importlike(HySymbol))
     @special("require", _importlike(HySymbol, HyString))
-    def compile_import_or_require(self, expr, root, entries):
+    def compile_import_or_require(
+        self, expr: HyExpression, root: str, entries: List[Union[HySymbol, HyList]]
+    ) -> Result:
         ret = Result()
 
         for entry in entries:
@@ -1267,16 +1546,16 @@ class HyASTCompiler(object):
                 module = ast_module.lstrip(".")
                 level = len(ast_module) - len(module)
                 if assignments == "ALL" and prefix == "":
-                    node = asty.ImportFrom
+                    node = with_lineno(ast.ImportFrom)
                     names = [ast.alias(name="*", asname=None)]
                 elif assignments == "ALL":
-                    node = asty.Import
+                    node = with_lineno(ast.Import)
                     prefix = mangle(prefix)
                     names = [ast.alias(
                         name=ast_module,
                         asname=prefix if prefix != module else None)]
                 else:
-                    node = asty.ImportFrom
+                    node = with_lineno(ast.ImportFrom)
                     names = [
                         ast.alias(
                             name=mangle(k),
@@ -1305,13 +1584,15 @@ class HyASTCompiler(object):
         return ret
 
     @special(["and", "or"], [many(FORM)])
-    def compile_logical_or_and_and_operator(self, expr, operator, args):
+    def compile_logical_or_and_and_operator(
+        self, expr: HyExpression, operator: str, args: List[HyObject]
+    ) -> Result:
         ops = {"and": (ast.And, True),
                "or": (ast.Or, None)}
         opnode, default = ops[operator]
         osym = expr[0]
         if len(args) == 0:
-            return asty.Constant(osym, value=default)
+            return Result(expr=with_lineno(ast.Constant)(osym, value=default))
         elif len(args) == 1:
             return self.compile(args[0])
         ret = Result()
@@ -1319,15 +1600,15 @@ class HyASTCompiler(object):
         if any(value.stmts for value in values):
             # Compile it to an if...else sequence
             var = self.get_anon_var()
-            name = asty.Name(osym, id=var, ctx=ast.Store())
-            expr_name = asty.Name(osym, id=var, ctx=ast.Load())
+            name = with_lineno(ast.Name)(osym, id=var, ctx=ast.Store())
+            expr_name = with_lineno(ast.Name)(osym, id=var, ctx=ast.Load())
             temp_variables = [name, expr_name]
 
             def make_assign(value, node=None):
-                positioned_name = asty.Name(
+                positioned_name = with_lineno(ast.Name)(
                     node or osym, id=var, ctx=ast.Store())
                 temp_variables.append(positioned_name)
-                return asty.Assign(
+                return with_lineno(ast.Assign)(
                     node or osym, targets=[positioned_name], value=value)
 
             current = root = []
@@ -1343,16 +1624,16 @@ class HyASTCompiler(object):
                     break
                 if operator == "and":
                     cond = expr_name
-                elif operator == "or":
-                    cond = asty.UnaryOp(node, op=ast.Not(), operand=expr_name)
-                current.append(asty.If(node, test=cond, body=[], orelse=[]))
+                else:  # operator must be "or"
+                    cond = with_lineno(ast.UnaryOp)(node, op=ast.Not(), operand=expr_name)
+                current.append(with_lineno(ast.If)(node, test=cond, body=[], orelse=[]))
                 current = current[-1].body
             ret = sum(root, ret)
             ret += Result(expr=expr_name, temp_variables=temp_variables)
         else:
-            ret += asty.BoolOp(osym,
-                               op=opnode(),
-                               values=[value.force_expr for value in values])
+            ret += with_lineno(ast.BoolOp)(osym,
+                                           op=opnode(),
+                                           values=[value.force_expr for value in values])
         return ret
 
     _c_ops = {
@@ -1369,7 +1650,7 @@ class HyASTCompiler(object):
     }
     _c_ops = {mangle(k): v for k, v in _c_ops.items()}
 
-    def _get_c_op(self, sym):
+    def _get_c_op(self, sym) -> ast.AST:
         k = mangle(sym)
         if k not in self._c_ops:
             raise self._syntax_error(sym, "Illegal comparison operator: " + str(sym))
@@ -1377,26 +1658,38 @@ class HyASTCompiler(object):
 
     @special(["=", "is", "<", "<=", ">", ">="], [oneplus(FORM)])
     @special(["!=", "is-not", "in", "not-in"], [times(2, INF, FORM)])
-    def compile_compare_op_expression(self, expr, root, args):
+    def compile_compare_op_expression(
+        self, expr: HyExpression, root: str, args: List[HyObject]
+    ) -> Result:
         if len(args) == 1:
             return (self.compile(args[0]) +
-                    asty.Constant(expr, value=True))
+                    with_lineno(ast.Constant)(expr, value=True))
 
         ops = [self._get_c_op(root) for _ in args[1:]]
         exprs, ret, _ = self._compile_collect(args)
-        return ret + asty.Compare(
+        return ret + with_lineno(ast.Compare)(
             expr, left=exprs[0], ops=ops, comparators=exprs[1:])
 
     @special("cmp", [FORM, many(SYM + FORM)])
-    def compile_chained_comparison(self, expr, root, arg1, args):
-        ret = self.compile(arg1)
+    def compile_chained_comparison(
+        self,
+        expr: HyExpression,
+        root: str,
+        arg1_expr: HyObject,
+        arg_exprs: List[Tuple[HySymbol, HyObject]],
+    ) -> Result:
+        ret = self.compile(arg1_expr)
         arg1 = ret.force_expr
 
-        ops = [self._get_c_op(op) for op, _ in args]
+        ops = [self._get_c_op(op) for op, _ in arg_exprs]
         args, ret2, _ = self._compile_collect(
-            [x for _, x in args])
+            [x for _, x in arg_exprs])
 
-        return ret + ret2 + asty.Compare(expr, left=arg1, ops=ops, comparators=args)
+        return (
+            ret
+            + ret2
+            + with_lineno(ast.Compare)(expr, left=arg1, ops=ops, comparators=args)
+        )
 
     # The second element of each tuple below is an aggregation operator
     # that's used for augmented assignment with three or more arguments.
@@ -1420,11 +1713,13 @@ class HyASTCompiler(object):
     @special(["-", "/", "&", "@"], [oneplus(FORM)])
     @special(["**", "//", "<<", ">>"], [times(2, INF, FORM)])
     @special(["%", "^"], [times(2, 2, FORM)])
-    def compile_maths_expression(self, expr, root, args):
+    def compile_maths_expression(
+        self, expr: HyExpression, root: str, args: List[HyObject]
+    ) -> Result:
         if len(args) == 0:
             # Return the identity element for this operator.
-            return asty.Num(expr, n=(
-                {"+": 0, "|": 0, "*": 1}[root]))
+            return Result(expr=with_lineno(ast.Num)(expr, n=(
+                {"+": 0, "|": 0, "*": 1}[root])))
 
         if len(args) == 1:
             if root == "/":
@@ -1434,7 +1729,7 @@ class HyASTCompiler(object):
                 # Apply unary plus or unary minus to the argument.
                 op = {"+": ast.UAdd, "-": ast.USub}[root]()
                 ret = self.compile(args[0])
-                return ret + asty.UnaryOp(expr, op=op, operand=ret.force_expr)
+                return ret + with_lineno(ast.UnaryOp)(expr, op=op, operand=ret.force_expr)
             else:
                 # Return the argument unchanged.
                 return self.compile(args[0])
@@ -1449,7 +1744,7 @@ class HyASTCompiler(object):
             right_expr = ret.force_expr
             if right_associative:
                 left_expr, right_expr = right_expr, left_expr
-            ret += asty.BinOp(expr, left=left_expr, op=op(), right=right_expr)
+            ret += with_lineno(ast.BinOp)(expr, left=left_expr, op=op(), right=right_expr)
 
         return ret
 
@@ -1457,28 +1752,42 @@ class HyASTCompiler(object):
 
     @special([x for x, (_, v) in a_ops.items() if v is not None], [FORM, oneplus(FORM)])
     @special([x for x, (_, v) in a_ops.items() if v is None], [FORM, times(1, 1, FORM)])
-    def compile_augassign_expression(self, expr, root, target, values):
+    def compile_augassign_expression(
+        self,
+        expr: HyExpression,
+        root: str,
+        target_expr: HyObject,
+        values: List[HyObject],
+    ) -> Result:
         if len(values) > 1:
             return self.compile(
                 mkexpr(
-                    root, [target], mkexpr(self.a_ops[root][1], rest=values)
+                    root, [target_expr], mkexpr(self.a_ops[root][1], rest=values)
                 ).replace(expr)
             )
 
         op = self.a_ops[root][0]
-        target = self._storeize(target, self.compile(target))
+        target = self._storeize(target_expr, self.compile(target_expr))
         ret = self.compile(values[0])
-        return ret + asty.AugAssign(
+        return ret + with_lineno(ast.AugAssign)(
             expr, target=target, value=ret.force_expr, op=op())
 
     @special("setv", [many(OPTIONAL_ANNOTATION + FORM + FORM)])
     @special((PY3_8, "setx"), [times(1, 1, SYM + FORM)])
-    def compile_def_expression(self, expr, root, decls):
+    def compile_def_expression(
+        self,
+        expr: HyExpression,
+        root: str,
+        decls: List[tuple],
+    ) -> Result:
         if not decls:
-            return asty.Constant(expr, value=None)
+            return Result(expr=with_lineno(ast.Constant)(expr, value=None))
 
         result = Result()
         is_assignment_expr = root == HySymbol("setx")
+        ann: Optional[HyObject]
+        name: HyObject
+        value: HyObject
         for decl in decls:
             if is_assignment_expr:
                 ann = None
@@ -1491,17 +1800,26 @@ class HyASTCompiler(object):
         return result
 
     @special(["annotate*"], [FORM, FORM])
-    def compile_basic_annotation(self, expr, root, ann, target):
+    def compile_basic_annotation(
+        self, expr: HyExpression, root: str, ann: HyObject, target: HyObject
+    ) -> Result:
         return self._compile_assign(ann, target, None)
 
-    def _compile_assign(self, ann, name, value, *, is_assignment_expr=False):
+    def _compile_assign(
+        self,
+        ann: Optional[HyObject],
+        name: HyObject,
+        value: Optional[HyObject],
+        *,
+        is_assignment_expr: bool = False
+    ) -> Result:
         # Ensure that assignment expressions have a result and no annotation.
         assert not is_assignment_expr or (value is not None and ann is None)
 
         def annotated_assignment_fn():
             """return an ast.AST like function for an `AnnAssign`"""
             def node(x, **kwargs):
-                return asty.AnnAssign(
+                return with_lineno(ast.AnnAssign)(
                     x,
                     annotation=ann_result.force_expr,
                     simple=int(isinstance(name, HySymbol)),
@@ -1532,11 +1850,11 @@ class HyASTCompiler(object):
                 result = ann_result + result
 
             if is_assignment_expr:
-                node = asty.NamedExpr
+                node = with_lineno(ast.NamedExpr)
             elif ann is not None:
                 node = annotated_assignment_fn()
             else:
-                node = asty.Assign
+                node = with_lineno(ast.Assign)
 
             result += node(
                 name if hasattr(name, "start_line") else result,
@@ -1546,12 +1864,19 @@ class HyASTCompiler(object):
         return result
 
     @special(["while"], [FORM, many(notpexpr("else")), maybe(dolike("else"))])
-    def compile_while_expression(self, expr, root, cond, body, else_expr):
+    def compile_while_expression(
+        self,
+        expr: HyExpression,
+        root: str,
+        cond: HyObject,
+        body_exprs: List[HyObject],
+        else_expr: Optional[List[HyObject]],
+    ) -> Result:
         cond_compiled = self.compile(cond)
 
-        body = self._compile_branch(body)
+        body = self._compile_branch(body_exprs)
         body += body.expr_as_stmt()
-        body_stmts = body.stmts or [asty.Pass(expr)]
+        body_stmts = body.stmts or [with_lineno(ast.Pass)(expr)]
 
         if cond_compiled.stmts:
             # We need to ensure the statements for the condition are
@@ -1563,26 +1888,30 @@ class HyASTCompiler(object):
             #    anon_var = condition expr
             #    if anon_var:
             #      while loop body
-            cond_var = asty.Name(cond, id=self.get_anon_var(), ctx=ast.Load())
+            cond_var = with_lineno(ast.Name)(cond, id=self.get_anon_var(), ctx=ast.Load())
 
             def make_not(operand):
-                return asty.UnaryOp(cond, op=ast.Not(), operand=operand)
+                return with_lineno(ast.UnaryOp)(cond, op=ast.Not(), operand=operand)
 
-            body_stmts = cond_compiled.stmts + [
-                asty.Assign(cond, targets=[self._storeize(cond, cond_var)],
-                            # Cast the condition to a bool in case it's mutable and
-                            # changes its truth value, but use (not (not ...)) instead of
-                            # `bool` in case `bool` has been redefined.
-                            value=make_not(make_not(cond_compiled.force_expr))),
-                asty.If(cond, test=cond_var, body=body_stmts, orelse=[]),
+            body_stmts = [
+                *cond_compiled.stmts,
+                with_lineno(ast.Assign)(
+                    cond,
+                    targets=[self._storeize(cond, cond_var)],
+                    # Cast the condition to a bool in case it's mutable and
+                    # changes its truth value, but use (not (not ...)) instead of
+                    # `bool` in case `bool` has been redefined.
+                    value=make_not(make_not(cond_compiled.force_expr)),
+                ),
+                with_lineno(ast.If)(cond, test=cond_var, body=body_stmts, orelse=[]),
             ]
 
             cond_compiled = (
                 Result()
-                + asty.Assign(
+                + with_lineno(ast.Assign)(
                     cond,
                     targets=[self._storeize(cond, cond_var)],
-                    value=asty.Constant(cond, value=True),
+                    value=with_lineno(ast.Constant)(cond, value=True),
                 )
                 + cond_var
             )
@@ -1592,7 +1921,7 @@ class HyASTCompiler(object):
             orel = self._compile_branch(else_expr)
             orel += orel.expr_as_stmt()
 
-        ret = cond_compiled + asty.While(
+        ret = cond_compiled + with_lineno(ast.While)(
             expr, test=cond_compiled.force_expr,
             body=body_stmts,
             orelse=orel.stmts)
@@ -1620,9 +1949,26 @@ class HyASTCompiler(object):
             many(argument),
             maybe(varargs("unpack-mapping", NASYM))),
         many(FORM)])
-    def compile_function_def(self, expr, root, returns, params, body):
+    def compile_function_def(
+        self,
+        expr: HyExpression,
+        root: str,
+        returns: Optional[HyObject],
+        params: Tuple[
+            Optional[List[Argument]],
+            List[Argument],
+            Optional[Varargs],
+            List[Argument],
+            Optional[Varargs],
+        ],
+        body_exprs: List[HyObject],
+    ) -> Result:
         force_functiondef = root in ("fn*", "fn/a")
-        node = asty.AsyncFunctionDef if root == "fn/a" else asty.FunctionDef
+        node = (
+            with_lineno(ast.AsyncFunctionDef)
+            if root == "fn/a"
+            else with_lineno(ast.FunctionDef)
+        )
         ret = Result()
 
         # NOTE: Our evaluation order of return type annotations is
@@ -1636,6 +1982,8 @@ class HyASTCompiler(object):
         if returns is not None:
             returns_result = self.compile(returns)
             ret += returns_result
+        else:
+            returns_result = None
 
         posonly, args, rest, kwonly, kwargs = params
 
@@ -1683,28 +2031,36 @@ class HyASTCompiler(object):
             kw_defaults=kwonly_defaults,
             kwarg=kwargs_ast)
 
-        body = self._compile_branch(body)
+        body = self._compile_branch(body_exprs)
 
         if not force_functiondef and not body.stmts and returns is None:
-            return ret + asty.Lambda(expr, args=args, body=body.force_expr)
+            return ret + with_lineno(ast.Lambda)(expr, args=args, body=body.force_expr)
 
         if body.expr:
-            body += asty.Return(body.expr, value=body.expr)
+            body += with_lineno(ast.Return)(body.expr, value=body.expr)
 
         name = self.get_anon_var()
 
-        ret += node(expr,
-                    name=name,
-                    args=args,
-                    body=body.stmts or [asty.Pass(expr)],
-                    decorator_list=[],
-                    returns=returns_result.force_expr if returns is not None else None)
+        def_ast_node = node(
+            expr,
+            name=name,
+            args=args,
+            body=body.stmts or [with_lineno(ast.Pass)(expr)],
+            decorator_list=[],
+            returns=returns_result.force_expr if returns is not None else None,
+        )
+        ret += def_ast_node
 
-        ast_name = asty.Name(expr, id=name, ctx=ast.Load())
-        ret += Result(expr=ast_name, temp_variables=[ast_name, ret.stmts[-1]])
+        ast_name = with_lineno(ast.Name)(expr, id=name, ctx=ast.Load())
+        ret += Result(expr=ast_name, temp_variables=[ast_name, def_ast_node])
         return ret
 
-    def _compile_arguments_set(self, decls, ret, is_kwonly=False):
+    def _compile_arguments_set(
+        self,
+        decls: List[Argument],
+        ret: Result,
+        is_kwonly: bool = False,
+    ) -> Tuple[List[ast.arg], List[Optional[ast.AST]], Result]:
         args_ast = []
         args_defaults = []
 
@@ -1737,23 +2093,29 @@ class HyASTCompiler(object):
                 # positional args.
                 args_defaults.append(None)
 
-            args_ast.append(asty.arg(
+            args_ast.append(with_lineno(ast.arg)(
                 sym, arg=mangle(self._nonconst(sym)), annotation=ann_ast))
 
         return args_ast, args_defaults, ret
 
     @special("return", [maybe(FORM)])
-    def compile_return(self, expr, root, arg):
+    def compile_return(
+        self, expr: HyExpression, root: str, arg: Optional[HyObject]
+    ) -> Result:
         ret = Result()
         if arg is None:
-            return asty.Return(expr, value=None)
+            return Result(stmts=[with_lineno(ast.Return)(expr, value=None)])
         ret += self.compile(arg)
-        return ret + asty.Return(expr, value=ret.force_expr)
+        return ret + with_lineno(ast.Return)(expr, value=ret.force_expr)
 
-    @special("defclass", [
-        SYM,
-        maybe(brackets(many(FORM)) + maybe(STR) + many(FORM))])
-    def compile_class_expression(self, expr, root, name, rest):
+    @special("defclass", [SYM, maybe(brackets(many(FORM)) + maybe(STR) + many(FORM))])
+    def compile_class_expression(
+        self,
+        expr: HyExpression,
+        root: str,
+        name: Optional[str],
+        rest: Optional[Tuple[List[List[HyObject]], Optional[HyString], List[HyObject]]],
+    ) -> Result:
         base_list, docstring, body = rest or ([[]], None, [])
 
         bases_expr, bases, keywords = (
@@ -1769,7 +2131,7 @@ class HyASTCompiler(object):
                 macroexpand(e, self.module, self)))
             bodyr += e + e.expr_as_stmt()
 
-        return bases + asty.ClassDef(
+        return bases + with_lineno(ast.ClassDef)(
             expr,
             decorator_list=[],
             name=mangle(self._nonconst(name)),
@@ -1777,9 +2139,9 @@ class HyASTCompiler(object):
             starargs=None,
             kwargs=None,
             bases=bases_expr,
-            body=bodyr.stmts or [asty.Pass(expr)])
+            body=bodyr.stmts or [with_lineno(ast.Pass)(expr)])
 
-    def _rewire_init(self, expr):
+    def _rewire_init(self, expr: HyObject) -> HyObject:
         "Given a (setv …) form, append None to definitions of __init__."
 
         if not (isinstance(expr, HyExpression)
@@ -1814,7 +2176,9 @@ class HyASTCompiler(object):
         return HyExpression([HySymbol("setv")] + new_args + decls).replace(expr)
 
     @special(["eval-and-compile", "eval-when-compile"], [many(FORM)])
-    def compile_eval_and_compile(self, expr, root, body):
+    def compile_eval_and_compile(
+        self, expr: HyExpression, root: str, body: Exprs
+    ) -> Result:
         new_expr = HyExpression([HySymbol("do").replace(expr[0])]).replace(expr)
 
         try:
@@ -1847,28 +2211,38 @@ class HyASTCompiler(object):
                 else Result())
 
     @special(["py", "pys"], [STR])
-    def compile_inline_python(self, expr, root, code):
+    def compile_inline_python(
+        self, expr: HyExpression, root: str, code: str
+    ) -> Result:
         exec_mode = root == HySymbol("pys")
 
         try:
             o = ast.parse(
                 textwrap.dedent(code) if exec_mode else code,
                 self.filename,
-                "exec" if exec_mode else "eval").body
+                "exec" if exec_mode else "eval")
         except (SyntaxError, ValueError) as e:
             raise self._syntax_error(
                 expr,
                 "Python parse error in '{}': {}".format(root, e))
 
-        return Result(stmts=o) if exec_mode else o
+        return (
+            Result(stmts=cast(ast.Module, o).body)
+            if exec_mode
+            else Result(expr=cast(ast.Expression, o).body)
+        )
 
     @builds_model(HyExpression)
-    def compile_expression(self, expr, *, allow_annotation_expression=False):
+    def compile_expression(
+        self, expr: HyExpression, *, allow_annotation_expression: bool = False
+    ) -> Result:
         # Perform macro expansions
-        expr = macroexpand(expr, self.module, self)
-        if not isinstance(expr, HyExpression):
+        expanded = macroexpand(expr, self.module, self)
+        if not isinstance(expanded, HyExpression):
             # Go through compile again if the type changed.
-            return self.compile(expr)
+            return self.compile(expanded)
+
+        expr = expanded
 
         if not expr:
             raise self._syntax_error(
@@ -1877,7 +2251,7 @@ class HyASTCompiler(object):
 
         args = list(expr)
         root = args.pop(0)
-        func = None
+        func: Optional[Result] = None
 
         if isinstance(root, HySymbol):
             # First check if `root` is a special operator, unless it has an
@@ -1901,7 +2275,7 @@ class HyASTCompiler(object):
                 # pattern-match the arguments.
                 build_method, pattern = _special_form_compilers[sroot]
                 try:
-                    parse_tree = pattern.parse(args)
+                    parse_tree: list = pattern.parse(args)
                 except NoParseError as e:
                     raise self._syntax_error(
                         expr[min(e.state.pos + 1, len(expr) - 1)],
@@ -1942,10 +2316,10 @@ class HyASTCompiler(object):
                 )
 
                 # And get the method
-                func += asty.Attribute(root,
-                                       value=func.force_expr,
-                                       attr=mangle(root),
-                                       ctx=ast.Load())
+                func += with_lineno(ast.Attribute)(root,
+                                                   value=func.force_expr,
+                                                   attr=mangle(root),
+                                                   ctx=ast.Load())
 
         elif is_annotate_expression(root):
             # Flatten and compile the annotation expression.
@@ -1957,18 +2331,20 @@ class HyASTCompiler(object):
 
         args, ret, keywords = self._compile_collect(args, with_kwargs=True)
 
-        return func + ret + asty.Call(
+        return func + ret + with_lineno(ast.Call)(
             expr, func=func.expr, args=args, keywords=keywords)
 
     @builds_model(HyInteger, HyFloat, HyComplex)
-    def compile_numeric_literal(self, x):
+    def compile_numeric_literal(
+        self, x: Union[HyInteger, HyFloat, HyComplex]
+    ) -> Result:
         f = {HyInteger: int,
              HyFloat: float,
              HyComplex: complex}[type(x)]
-        return asty.Num(x, n=f(x))
+        return Result() + with_lineno(ast.Num)(x, n=f(x))
 
     @builds_model(HySymbol)
-    def compile_symbol(self, symbol):
+    def compile_symbol(self, symbol: HySymbol) -> Result:
         if "." in symbol:
             glob, local = symbol.rsplit(".", 1)
 
@@ -1986,65 +2362,78 @@ class HyASTCompiler(object):
             glob = HySymbol(glob).replace(symbol)
             ret = self.compile_symbol(glob)
 
-            return asty.Attribute(
+            return Result(expr=with_lineno(ast.Attribute)(
                 symbol,
-                value=ret,
+                value=ret.force_expr,
                 attr=mangle(local),
-                ctx=ast.Load())
+                ctx=ast.Load()))
 
         if mangle(symbol) in ("None", "False", "True"):
-            return asty.Constant(symbol, value=ast.literal_eval(mangle(symbol)))
+            return Result(
+                expr=with_lineno(ast.Constant)(
+                    symbol, value=ast.literal_eval(mangle(symbol))
+                )
+            )
 
-        return asty.Name(symbol, id=mangle(symbol), ctx=ast.Load())
+        return Result(
+            expr=with_lineno(ast.Name)(symbol, id=mangle(symbol), ctx=ast.Load())
+        )
 
     @builds_model(HyKeyword)
-    def compile_keyword(self, obj):
+    def compile_keyword(self, obj: HyKeyword) -> Result:
         ret = Result()
-        ret += asty.Call(
+        ret += with_lineno(ast.Call)(
             obj,
-            func=asty.Name(obj, id="HyKeyword", ctx=ast.Load()),
-            args=[asty.Str(obj, s=obj.name)],
+            func=with_lineno(ast.Name)(obj, id="HyKeyword", ctx=ast.Load()),
+            args=[with_lineno(ast.Str)(obj, s=obj.name)],
             keywords=[])
         return ret
 
     @builds_model(HyString, HyBytes)
-    def compile_string(self, string):
-        node = asty.Bytes if type(string) is HyBytes else asty.Str
-        f = bytes if type(string) is HyBytes else str
-        return node(string, s=f(string))
+    def compile_string(self, string: Union[HyString, HyBytes]) -> Result:
+        if isinstance(string, HyString):
+            return Result(expr=with_lineno(ast.Str)(string, s=str(string)))
+        else:
+            return Result(expr=with_lineno(ast.Bytes)(string, s=bytes(string)))
 
     @builds_model(HyFComponent)
-    def compile_fcomponent(self, fcomponent):
+    def compile_fcomponent(self, fcomponent: HyFComponent) -> Result:
         conversion = ord(fcomponent.conversion) if fcomponent.conversion else -1
         root, *rest = fcomponent
         value = self.compile(root)
         elements, ret, _ = self._compile_collect(rest)
         if elements:
-            spec = asty.JoinedStr(fcomponent, values=elements)
+            spec = with_lineno(ast.JoinedStr)(fcomponent, values=elements)
         else:
             spec = None
-        return value + ret + asty.FormattedValue(
+        return value + ret + with_lineno(ast.FormattedValue)(
             fcomponent, value=value.expr, conversion=conversion, format_spec=spec)
 
     @builds_model(HyFString)
-    def compile_fstring(self, fstring):
+    def compile_fstring(self, fstring: HyFString) -> Result:
         elements, ret, _ = self._compile_collect(fstring)
-        return ret + asty.JoinedStr(fstring, values=elements)
+        return ret + with_lineno(ast.JoinedStr)(fstring, values=elements)
 
     @builds_model(HyList, HySet)
-    def compile_list(self, expression):
+    def compile_list(self, expression: Union[HyList, HySet]) -> Result:
         elements, ret, _ = self._compile_collect(expression)
-        node = {HyList: asty.List, HySet: asty.Set}[type(expression)]
+        node = {HyList: with_lineno(ast.List), HySet: with_lineno(ast.Set)}[
+            type(expression)
+        ]
         return ret + node(expression, elts=elements, ctx=ast.Load())
 
     @builds_model(HyDict)
-    def compile_dict(self, m):
+    def compile_dict(self, m: HyDict) -> Result:
         keyvalues, ret, _ = self._compile_collect(m, dict_display=True)
-        return ret + asty.Dict(m, keys=keyvalues[::2], values=keyvalues[1::2])
+        return ret + with_lineno(ast.Dict)(m, keys=keyvalues[::2], values=keyvalues[1::2])
 
 
 # Public Methods ##############################################################
-def _get_compiler_module(module=None, compiler=None, calling_frame=False):
+def _get_compiler_module(
+    module: Optional[Union[str, types.ModuleType]] = None,
+    compiler: HyASTCompiler = None,
+    calling_frame: bool = False,
+):
     """Get a module object from a compiler, given module object,
     string name of a module, and (optionally) the calling frame; otherwise,
     raise an error."""
@@ -2060,14 +2449,22 @@ def _get_compiler_module(module=None, compiler=None, calling_frame=False):
     if calling_frame and not module:
         module = calling_module(n=2)
 
-    if not inspect.ismodule(module):
+    if not isinstance(module, types.ModuleType):
         raise TypeError("Invalid module type: {}".format(type(module)))
 
     return module
 
 
-def hy_eval(hytree, locals=None, module=None, ast_callback=None,
-            compiler=None, filename=None, source=None, import_stdlib=True):
+def hy_eval(
+    hytree: HyObject,
+    locals: Optional[dict] = None,
+    module: Optional[Union[str, types.ModuleType]] = None,
+    ast_callback: Optional[Callable] = None,
+    compiler: Optional[HyASTCompiler] = None,
+    filename: Optional[str] = None,
+    source: Optional[str] = None,
+    import_stdlib: bool = True,
+):
     """Evaluates a quoted expression and returns the value.
 
     If you're evaluating hand-crafted AST trees, make sure the line numbers
@@ -2137,12 +2534,12 @@ def hy_eval(hytree, locals=None, module=None, ast_callback=None,
         raise TypeError("Locals must be a dictionary")
 
     # Does the Hy AST object come with its own information?
-    filename = getattr(hytree, "filename", filename) or "<string>"
+    filename = cast(str, getattr(hytree, "filename", filename) or "<string>")
     source = getattr(hytree, "source", source)
 
-    _ast, expr = hy_compile(hytree, module, get_expr=True,
-                            compiler=compiler, filename=filename,
-                            source=source, import_stdlib=import_stdlib)
+    _ast, expr = cast(tuple, hy_compile(hytree, module, get_expr=True,
+                                        compiler=compiler, filename=filename,
+                                        source=source, import_stdlib=import_stdlib))
 
     if ast_callback:
         ast_callback(_ast, expr)
@@ -2156,10 +2553,16 @@ def hy_eval(hytree, locals=None, module=None, ast_callback=None,
                 module.__dict__, locals)
 
 
-def hy_compile(tree: HyObject, module: Union[str, types.ModuleType],
-               root: Type[ast.AST] = ast.Module, get_expr: bool = False,
-               compiler: HyASTCompiler = None, filename: str = None,
-               source: str = None, import_stdlib: bool = True):
+def hy_compile(
+    tree: HyObject,
+    module: Union[str, types.ModuleType],
+    root: Type[ast.AST] = ast.Module,
+    get_expr: bool = False,
+    compiler: Optional[HyASTCompiler] = None,
+    filename: Optional[str] = None,
+    source: Optional[str] = None,
+    import_stdlib: bool = True,
+) -> Union[ast.AST, Tuple[ast.AST, Optional[ast.Expression]]]:
     """Compile a HyObject tree into a Python AST Module.
 
     Args:
@@ -2172,9 +2575,9 @@ def hy_compile(tree: HyObject, module: Union[str, types.ModuleType],
         compiler (optional): An existing Hy compiler to use for compilation.  Also
             serves as the `module` value when given.
         filename (optional): The filename corresponding to the source for `tree`.
-            This will be overridden by the `filename` field of `tree`, if any; otherwise,
-            it defaults to "<string>".  When `compiler` is given, its `filename` field
-            value is always used.
+            This will be overridden by the `filename` field of `tree`, if any;
+            otherwise, it defaults to "<string>".  When `compiler` is given, its
+            `filename` field value is always used.
         source (optional): A string containing the source code for `tree`. This will
             be overridden by the `source` field of `tree`, if any; otherwise,
             if `None`, an attempt will be made to obtain it from the module given by
@@ -2203,13 +2606,17 @@ def hy_compile(tree: HyObject, module: Union[str, types.ModuleType],
         raise TypeError("`tree` must be a HyObject or capable of "
                         "being promoted to one")
 
-    compiler = compiler or HyASTCompiler(module, filename=filename, source=source)
+    compiler = compiler or HyASTCompiler(
+        module, filename=filename or "<string>", source=source
+    )
 
     if import_stdlib:
         # Import hy for compile time, but save the compiled AST.
         stdlib_ast = compiler.compile(
             mkexpr("eval-and-compile", mkexpr("import", "hy"))
         )
+    else:
+        stdlib_ast = Result()
 
     result = compiler.compile(tree)
     expr = result.force_expr
@@ -2226,7 +2633,8 @@ def hy_compile(tree: HyObject, module: Union[str, types.ModuleType],
             and isinstance(result.stmts[0], ast.Expr)
             and isinstance(result.stmts[0].value, ast.Str)
         ):
-            body += [result.stmts.pop(0)]
+            docstring, *result.stmts = result.stmts
+            body += [docstring]
 
         # Pull out any __future__ imports, since they are required to be at the
         # beginning.
@@ -2235,8 +2643,8 @@ def hy_compile(tree: HyObject, module: Union[str, types.ModuleType],
             and isinstance(result.stmts[0], ast.ImportFrom)
             and result.stmts[0].module == "__future__"
         ):
-
-            body += [result.stmts.pop(0)]
+            future_import, *result.stmts = result.stmts
+            body += [future_import]
 
         # Import hy for runtime.
         if import_stdlib:
@@ -2247,6 +2655,6 @@ def hy_compile(tree: HyObject, module: Union[str, types.ModuleType],
 
     if get_expr:
         expr = ast.Expression(body=expr)
-        ret = (ret, expr)
+        return ret, expr
 
     return ret

@@ -12,6 +12,7 @@ from itertools import repeat
 from collections import namedtuple
 from operator import add
 from math import isinf
+from typing import List
 
 FORM = some(lambda _: True)
 SYM = some(lambda x: isinstance(x, HySymbol))
@@ -24,7 +25,7 @@ def sym(wanted):
         return skip(a(HyKeyword(wanted[1:])))
     return skip(some(lambda x: isinstance(x, HySymbol) and x == wanted))
 
-def whole(parsers):
+def whole(parsers: List[Parser]):
     """Parse the parsers in the given list one after another, then
     expect the end of the input."""
     if len(parsers) == 0:
