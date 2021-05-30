@@ -44,6 +44,9 @@ Other Breaking Changes
   automatically brought into scope. Call them as `hy.gensym`, `hy.macroexpand`, etc
   or import them explicitly.
 * made `calling-module-name` private and `calling-module` internal to Hy
+* `if` now only accepts one test, if branch, and else branch
+* `defn`, `defn/a` have been made a special forms
+* `annotate*` has been made public and renamed `annotate`
 
 New Features
 ------------------------------
