@@ -230,7 +230,7 @@
   "
   (import [itertools [tee islice]])
   (setv [copy1 copy2] (tee coll))
-  (gfor  [x _] (zip copy1 (islice copy2 n None))  x))
+  (gfor  [[x _] (zip copy1 (islice copy2 n None))]  x))
 
 (defn empty? [coll]
   "Check if `coll` is empty.

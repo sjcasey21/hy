@@ -30,7 +30,7 @@
   ;; dict=: :&
   (setv D (dict=: (a (b (c :& inner)) d :& outer)
                   [1 [2 [3 4 5] 6] 7 8]))
-  (assert (= (lfor k "abcd" (get D k))
+  (assert (= (lfor [k "abcd"] (get D k))
              [1 2 3 7]))
   (assert (= (list (get D "inner"))
              [4 5]))
@@ -57,7 +57,7 @@
   (assert (= [3 4 5] (list (islice d 3))))
   (assert (= [0 1 2 3 4 5] (list (islice e 6))))
   ;; missing
-  (setv+ (a b c :& d :as e) (gfor i (range 2) i))
+  (setv+ (a b c :& d :as e) (gfor [i (range 2)] i))
   (assert (= [a b c]
              [0 1 None]))
   (assert (= [] (list d)))

@@ -86,7 +86,7 @@
   "
   `(do (setv
          ~name ~head
-         ~@(sum (gfor  x rest  [name x]) []))
+         ~@(sum (gfor  [x rest]  [name x]) []))
      ~name))
 
 
@@ -134,7 +134,7 @@
   `(setv ~@(+ (if other-kvs
                 [c coll]
                 [])
-              (lfor [i x] (enumerate (+ (, k1 v1) other-kvs))
+              (lfor [[i x] (enumerate (+ (, k1 v1) other-kvs))]
                     (if (% i 2) x `(get ~c ~x))))))
 
 
@@ -571,8 +571,8 @@
            arg]
           [(and (isinstance args hy.models.List) (.startswith (get arg 0) "o!"))
            (get arg 0)]))
-  (setv os (lfor  x (map extract-o!-sym args)  :if x  x)
-        gs (lfor s os (hy.models.Symbol (+ "g!" (cut s 2 None)))))
+  (setv os (lfor [x (map extract-o!-sym args)  :if x]  x)
+        gs (lfor [s os] (hy.models.Symbol (+ "g!" (cut s 2 None)))))
 
   (setv [docstring body] (if (and (isinstance (get body 0) str)
                                   (> (len body) 1))
@@ -700,7 +700,7 @@
 
 
 (defmacro cfor [f #* generator]
-  #[[syntactic sugar for passing a ``generator`` expression to the callable ``f``
+  #[doc[syntactic sugar for passing a ``generator`` expression to the callable ``f``
 
   Its syntax is the same as :ref:`generator expression <py:genexpr>`, but takes
   a function ``f`` that the generator will be immedietly passed to. Equivalent
@@ -708,7 +708,7 @@
 
   Examples:
   ::
-     => (cfor tuple x (range 10) :if (odd? x) x)
+     => (cfor tuple [x (range 10) :if (odd? x)] x)
      (, 1 3 5 7 9)
 
   The equivalent in python would be:
@@ -717,15 +717,15 @@
 
   Some other common functions that take iterables::
 
-     => (cfor all x [1 3 8 5] (< x 10))
+     => (cfor all [x [1 3 8 5]] (< x 10))
      True
 
      => (with [f (open "AUTHORS")]
      ...  (cfor max
-     ...        author (.splitlines (f.read))
-     ...        :setv name (.group (re.match r"\* (.*?) <" author) 1)
-     ...        :if (name.startswith "A")
+     ...        [author (.splitlines (f.read))
+     ...         :setv name (.group (re.match r"\* (.*?) <" author) 1)
+     ...         :if (name.startswith "A")]
      ...        (len name)))
      20 ;; The number of characters in the longest author's name that starts with 'A'
-  ]]
+  ]doc]
   `(~f (gfor ~@generator)))
