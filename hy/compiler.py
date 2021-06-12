@@ -1095,7 +1095,7 @@ class HyASTCompiler(object):
             base_case = Result(stmts=[asty.Pass(expr)])
         return self._compile_manual_loop(parts, base_case, orelse=orel)
 
-    @special(["lfor", "sfor", "gfor"], [_loopers, FORM])
+    @special(["lfor", "sfor", "gfor"], [brackets(_loopers), FORM])
     def compile_iterable_comprehension(self, expr, root, parts, final):
         node_class = {
             "lfor": asty.ListComp,
@@ -1104,6 +1104,7 @@ class HyASTCompiler(object):
         }[root]
 
         elt = self.compile(final)
+        parts = parts[0]
         if not parts:
             return Result(
                 expr=ast.parse(
@@ -1131,12 +1132,13 @@ class HyASTCompiler(object):
             base_case = ret + asty.Expr(elt, value=asty.Yield(elt, value=val))
             return self._create_generator_function(expr, parts, base_case, node_class)
 
-    @special("dfor", [_loopers, brackets(FORM, FORM)])
+    @special("dfor", [brackets(_loopers), brackets(FORM, FORM)])
     def compile_dict_comprehension(self, expr, root, parts, final):
         # Get the final value (and for dictionary
         # comprehensions, the final key).
         key, elt = map(self.compile, final)
 
+        parts = parts[0]
         # Compile the parts.
         if not parts:
             return Result(expr=asty.Dict(expr, keys=[], values=[]))
