@@ -893,8 +893,14 @@ class HyASTCompiler(object):
             expr, type=types.expr, name=name,
             body=body.stmts or [asty.Pass(expr)])
 
-    @special("if", [FORM, FORM, maybe(FORM)])
-    def compile_if(self, expr, _, cond, body, orel_expr):
+    @special("if", [times(2, Inf, FORM)])
+    def compile_if(self, expr, root, branches):
+        orel_expr = None
+        if len(branches) == 3:
+            cond, body, orel_expr = branches
+            branches = None
+        else:
+            cond, body, *branches = branches
         cond = self.compile(cond)
         body = self.compile(body)
 
@@ -908,6 +914,8 @@ class HyASTCompiler(object):
                 nested = True
                 self.temp_if = self.temp_if or self.get_anon_var()
             orel = self.compile(orel_expr)
+        elif branches:
+            orel = self.compile_if(expr, root, branches)
 
         if not cond.stmts and isinstance(cond.force_expr, ast.Name):
             name = cond.force_expr.id
