@@ -174,12 +174,26 @@ def _inject_builtins():
     if hasattr(builtins, '__hy_injected__'):
         return
 
-    # Load the standard functions directly into builtins
-    core = importlib.import_module('hy.core')
-    builtins.__dict__.update({k: getattr(core, k) for k in core.__all__})
-
-    # Load the standard macros
+    # Load the standard macros first
     hy.macros.load_macros(builtins)
+
+    # Load the standard functions directly into builtins
+    # have to do this manually otherwise we end up in a weird circular
+    # import problem in `load_macros` with importlib trying to import `hy.core` before
+    # macros have been injected
+    shadow = {
+        k: v
+        for k, v in importlib.import_module("hy.core.shadow").__dict__.items()
+        if not k.startswith("_") and k != "hy"
+    }
+    language = {
+        k: v
+        for k, v in importlib.import_module("hy.core.language").__dict__.items()
+        if not k.startswith("_") and k != "hy"
+    }
+
+    builtins.__dict__.update(shadow)
+    builtins.__dict__.update(language)
 
     # Set the marker so we don't inject again
     builtins.__hy_injected__ = True

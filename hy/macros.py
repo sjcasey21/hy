@@ -13,16 +13,16 @@ from hy.models import replace_hy_obj, Expression, Symbol, as_model
 from hy.lex import mangle, unmangle
 from hy.errors import (HyLanguageError, HyMacroExpansionError, HyTypeError,
                        HyRequireError)
+from hy.model_patterns import whole
+from funcparserlib.parser import NoParseError
 
-EXTRA_MACROS = [
-    "hy.core.macros",
-]
+EXTRA_MACROS = ["hy.core.special_macros", "hy.core.macros"]
 
 
 def macro(name):
-    """Decorator to define a macro called `name`.
-    """
+    """Decorator to define a macro called `name`."""
     name = mangle(name)
+
     def _(fn):
         fn = rename_function(fn, name)
 
@@ -31,6 +31,35 @@ def macro(name):
         module_macros[name] = fn
 
         return fn
+
+    return _
+
+
+def pattern_macro(name, parser):
+    pattern = whole(parser)
+    mname = mangle(name)
+
+    def _(fn):
+        def wrapper(compiler, *args):
+            try:
+                parse_tree = pattern.parse(args)
+            except NoParseError as e:
+                expr = Expression([Symbol(name), *args])
+                raise compiler._syntax_error(
+                    expr[min(e.state.pos + 1, len(expr) - 1)],
+                    "parse error for special form '{}': {}".format(
+                        name, e.msg.replace("<EOF>", "end of form")
+                    ),
+                )
+            return fn(compiler, *parse_tree)
+
+        fn = rename_function(fn, mname)
+
+        module = inspect.getmodule(fn)
+        module_macros = module.__dict__.setdefault("__macros__", {})
+        module_macros[mname] = wrapper
+        return wrapper
+
     return _
 
 

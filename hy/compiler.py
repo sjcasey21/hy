@@ -252,6 +252,11 @@ class Result(object):
             lineno=self.stmts[-1].lineno if self.stmts else 0,
             col_offset=self.stmts[-1].col_offset if self.stmts else 0)
 
+    def replace(self, other):
+        # This break line number tracking, but Results instances derive their
+        # lineinfo their compiled statements and those can't be changed easily
+        pass
+
     def expr_as_stmt(self):
         """Convert the Result's expression context to a statement
 
@@ -2105,6 +2110,9 @@ class HyASTCompiler(object):
     def compile_dict(self, m):
         keyvalues, ret, _ = self._compile_collect(m, dict_display=True)
         return ret + asty.Dict(m, keys=keyvalues[::2], values=keyvalues[1::2])
+    @builds_model(Result)
+    def compile_result(self, res):
+        return res
 
 
 def get_compiler_module(module=None, compiler=None, calling_frame=False):
