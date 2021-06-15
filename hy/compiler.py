@@ -1722,7 +1722,7 @@ class HyASTCompiler(object):
                 ]),
                 Expression([
                     Symbol("fn"),
-                    List([Symbol("&name")] + list(expr[2])),
+                    List([Symbol("hy-compiler")] + list(expr[2])),
                     *body
                 ])
             ])

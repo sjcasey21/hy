@@ -287,7 +287,7 @@ def macroexpand(tree, module, compiler=None, once=False):
             break
 
         with MacroExceptions(module, tree, compiler):
-            obj = m(module.__name__, *tree[1:])
+            obj = m(compiler, *tree[1:])
             from hy.compiler import Result
             if isinstance(obj, Result):
                 return obj
