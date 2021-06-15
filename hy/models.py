@@ -147,9 +147,6 @@ def as_model(x):
        True  ; True because ``as-model`` has walked the expression and promoted
              ; the literal int ``2`` to its model for ``(hy.model.Integer 2)``
     """
-    from hy.compiler import Result
-    if isinstance(x, Result):
-        return x
 
     new = _wrappers.get(type(x), lambda y: y)(x)
     if not isinstance(new, Object):

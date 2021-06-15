@@ -2002,9 +2002,6 @@ class HyASTCompiler(object):
     def compile_dict(self, m):
         keyvalues, ret, _ = self._compile_collect(m, dict_display=True)
         return ret + asty.Dict(m, keys=keyvalues[::2], values=keyvalues[1::2])
-    @builds_model(Result)
-    def compile_result(self, res):
-        return res
 
 
 def get_compiler_module(module=None, compiler=None, calling_frame=False):
