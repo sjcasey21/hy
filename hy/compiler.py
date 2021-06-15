@@ -612,34 +612,6 @@ class HyASTCompiler(object):
         ret = self.compile(stmts)
         return ret
 
-    @special("unpack-iterable", [FORM])
-    def compile_unpack_iterable(self, expr, root, arg):
-        ret = self.compile(arg)
-        ret += asty.Starred(expr, value=ret.force_expr, ctx=ast.Load())
-        return ret
-
-    @special("do", [many(FORM)])
-    def compile_do(self, expr, root, body):
-        return self._compile_branch(body)
-
-    @special("raise", [maybe(FORM), maybe(sym(":from") + FORM)])
-    def compile_raise_expression(self, expr, root, exc, cause):
-        ret = Result()
-
-        if exc is not None:
-            exc = self.compile(exc)
-            ret += exc
-            exc = exc.force_expr
-
-        if cause is not None:
-            cause = self.compile(cause)
-            ret += cause
-            cause = cause.force_expr
-
-        return ret + asty.Raise(
-            expr, type=ret.expr, exc=exc,
-            inst=None, tback=None, cause=cause)
-
     notsym = lambda *dissallowed: some(
         lambda x: isinstance(x, Symbol) and str(x) not in dissallowed
     )
@@ -901,86 +873,6 @@ class HyASTCompiler(object):
         return types + asty.ExceptHandler(
             expr, type=types.expr, name=name,
             body=body.stmts or [asty.Pass(expr)])
-
-    @special("if", [FORM, FORM, maybe(FORM)])
-    def compile_if(self, expr, _, cond, body, orel_expr):
-        cond = self.compile(cond)
-        body = self.compile(body)
-
-        nested = root = False
-        orel = Result()
-        if orel_expr is not None:
-            if isinstance(orel_expr, Expression) and isinstance(orel_expr[0],
-               Symbol) and orel_expr[0] == Symbol('if*'):
-                # Nested ifs: don't waste temporaries
-                root = self.temp_if is None
-                nested = True
-                self.temp_if = self.temp_if or self.get_anon_var()
-            orel = self.compile(orel_expr)
-
-        if not cond.stmts and isinstance(cond.force_expr, ast.Name):
-            name = cond.force_expr.id
-            branch = None
-            if name == 'True':
-                branch = body
-            elif name in ('False', 'None'):
-                branch = orel
-            if branch is not None:
-                if self.temp_if and branch.stmts:
-                    name = asty.Name(expr,
-                                     id=mangle(self.temp_if),
-                                     ctx=ast.Store())
-
-                    branch += asty.Assign(expr,
-                                          targets=[name],
-                                          value=body.force_expr)
-
-                return branch
-
-        # We want to hoist the statements from the condition
-        ret = cond
-
-        if body.stmts or orel.stmts:
-            # We have statements in our bodies
-            # Get a temporary variable for the result storage
-            var = self.temp_if or self.get_anon_var()
-            name = asty.Name(expr,
-                             id=mangle(var),
-                             ctx=ast.Store())
-
-            # Store the result of the body
-            body += asty.Assign(expr,
-                                targets=[name],
-                                value=body.force_expr)
-
-            # and of the else clause
-            if not nested or not orel.stmts or (not root and
-               var != self.temp_if):
-                orel += asty.Assign(expr,
-                                    targets=[name],
-                                    value=orel.force_expr)
-
-            # Then build the if
-            ret += asty.If(expr,
-                           test=ret.force_expr,
-                           body=body.stmts,
-                           orelse=orel.stmts)
-
-            # And make our expression context our temp variable
-            expr_name = asty.Name(expr, id=mangle(var), ctx=ast.Load())
-
-            ret += Result(expr=expr_name, temp_variables=[expr_name, name])
-        else:
-            # Just make that an if expression
-            ret += asty.IfExp(expr,
-                              test=ret.force_expr,
-                              body=body.force_expr,
-                              orelse=orel.force_expr)
-
-        if root:
-            self.temp_if = None
-
-        return ret
 
     @special(["break", "continue"], [])
     def compile_break_or_continue_expression(self, expr, root):
