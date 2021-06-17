@@ -220,7 +220,7 @@
               [(= (get form 0) (hy.models.Symbol "require"))
                (ast-compiler.compile form)
                (return)]
-              [True (traverse (mexpand form ast-compiler.module ast-compiler))])
+              [True (traverse (mexpand form ast-compiler.module ast-compiler :result-ok False))])
         (if (coll? form)
             (traverse form)
             form)))
