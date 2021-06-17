@@ -94,7 +94,6 @@ def calling_module(n=1):
 
 _special_form_compilers = {}
 _model_compilers = {}
-_decoratables = (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)
 # _bad_roots are fake special operators, which are used internally
 # by other special forms (e.g., `except` in `try`) but can't be
 # used to construct special forms themselves.
@@ -875,52 +874,6 @@ class HyASTCompiler(object):
             body=body.stmts or [asty.Pass(expr)])
 
 
-    @special("del", [many(FORM)])
-    def compile_del_expression(self, expr, name, args):
-        if not args:
-            return asty.Pass(expr)
-
-        del_targets = []
-        ret = Result()
-        for target in args:
-            compiled_target = self.compile(target)
-            ret += compiled_target
-            del_targets.append(self._storeize(target, compiled_target,
-                                              ast.Del))
-
-        return ret + asty.Delete(expr, targets=del_targets)
-
-    @special("cut", [FORM, maybe(FORM), maybe(FORM), maybe(FORM)])
-    def compile_cut_expression(self, expr, name, obj, lower, upper, step):
-        ret = [Result()]
-        def c(e):
-            ret[0] += self.compile(e)
-            return ret[0].force_expr
-
-        if upper is None:
-            # cut with single index is an upper bound,
-            # this is consistent with slice and islice
-            upper = lower
-            lower = Symbol('None')
-
-        s = asty.Subscript(
-            expr,
-            value=c(obj),
-            slice=asty.Slice(expr,
-                lower=c(lower), upper=c(upper), step=c(step)),
-            ctx=ast.Load())
-        return ret[0] + s
-
-    @special("with-decorator", [oneplus(FORM)])
-    def compile_decorate_expression(self, expr, name, args):
-        decs, fn = args[:-1], self.compile(args[-1])
-        if not fn.stmts or not isinstance(fn.stmts[-1], _decoratables):
-            raise self._syntax_error(args[-1],
-                "Decorated a non-function")
-        decs, ret, _ = self._compile_collect(decs)
-        fn.stmts[-1].decorator_list = decs + fn.stmts[-1].decorator_list
-        return ret + fn
-
     @special(["with", "with/a"],
              [(brackets(times(1, Inf, FORM + FORM)))
               | brackets((FORM >> (lambda x: [(Symbol('_'), x)]))),
@@ -1106,14 +1059,6 @@ class HyASTCompiler(object):
             return asty.DictComp(expr, key=key.expr, value=elt.expr, generators=generators)
         return node_class(expr, elt=elt.expr, generators=generators)
 
-    @special(["not", "~"], [FORM])
-    def compile_unary_operator(self, expr, root, arg):
-        ops = {"not": ast.Not,
-               "~": ast.Invert}
-        operand = self.compile(arg)
-        return operand + asty.UnaryOp(
-            expr, op=ops[root](), operand=operand.force_expr)
-
     def _importlike(*name_types):
         name = some(lambda x: isinstance(x, name_types) and "." not in x)
         return [many(
@@ -1195,82 +1140,6 @@ class HyASTCompiler(object):
 
         return ret
 
-    @special(["and", "or"], [many(FORM)])
-    def compile_logical_or_and_and_operator(self, expr, operator, args):
-        ops = {"and": (ast.And, True),
-               "or": (ast.Or, None)}
-        opnode, default = ops[operator]
-        osym = expr[0]
-        if len(args) == 0:
-            return asty.Constant(osym, value=default)
-        elif len(args) == 1:
-            return self.compile(args[0])
-        ret = Result()
-        values = list(map(self.compile, args))
-        if any(value.stmts for value in values):
-            # Compile it to an if...else sequence
-            var = self.get_anon_var()
-            name = asty.Name(osym, id=var, ctx=ast.Store())
-            expr_name = asty.Name(osym, id=var, ctx=ast.Load())
-            temp_variables = [name, expr_name]
-
-            def make_assign(value, node=None):
-                positioned_name = asty.Name(
-                    node or osym, id=var, ctx=ast.Store())
-                temp_variables.append(positioned_name)
-                return asty.Assign(
-                    node or osym, targets=[positioned_name], value=value)
-
-            current = root = []
-            for i, value in enumerate(values):
-                if value.stmts:
-                    node = value.stmts[0]
-                    current.extend(value.stmts)
-                else:
-                    node = value.expr
-                current.append(make_assign(value.force_expr, value.force_expr))
-                if i == len(values)-1:
-                    # Skip a redundant 'if'.
-                    break
-                if operator == "and":
-                    cond = expr_name
-                elif operator == "or":
-                    cond = asty.UnaryOp(node, op=ast.Not(), operand=expr_name)
-                current.append(asty.If(node, test=cond, body=[], orelse=[]))
-                current = current[-1].body
-            ret = sum(root, ret)
-            ret += Result(expr=expr_name, temp_variables=temp_variables)
-        else:
-            ret += asty.BoolOp(osym,
-                               op=opnode(),
-                               values=[value.force_expr for value in values])
-        return ret
-
-    _c_ops = {"=": ast.Eq, "!=": ast.NotEq,
-             "<": ast.Lt, "<=": ast.LtE,
-             ">": ast.Gt, ">=": ast.GtE,
-             "is": ast.Is, "is-not": ast.IsNot,
-             "in": ast.In, "not-in": ast.NotIn}
-    _c_ops = {mangle(k): v for k, v in _c_ops.items()}
-    def _get_c_op(self, sym):
-        k = mangle(sym)
-        if k not in self._c_ops:
-            raise self._syntax_error(sym,
-                "Illegal comparison operator: " + str(sym))
-        return self._c_ops[k]()
-
-    @special(["=", "is", "<", "<=", ">", ">="], [oneplus(FORM)])
-    @special(["!=", "is-not", "in", "not-in"], [times(2, Inf, FORM)])
-    def compile_compare_op_expression(self, expr, root, args):
-        if len(args) == 1:
-            return (self.compile(args[0]) +
-                    asty.Constant(expr, value=True))
-
-        ops = [self._get_c_op(root) for _ in args[1:]]
-        exprs, ret, _ = self._compile_collect(args)
-        return ret + asty.Compare(
-            expr, left=exprs[0], ops=ops, comparators=exprs[1:])
-
     @special("chainc", [FORM, many(SYM + FORM)])
     def compile_chained_comparison(self, expr, root, arg1, args):
         ret = self.compile(arg1)
@@ -1282,74 +1151,6 @@ class HyASTCompiler(object):
 
         return ret + ret2 + asty.Compare(expr,
             left=arg1, ops=ops, comparators=args)
-
-    # The second element of each tuple below is an aggregation operator
-    # that's used for augmented assignment with three or more arguments.
-    m_ops = {"+": (ast.Add, "+"),
-             "/": (ast.Div, "*"),
-             "//": (ast.FloorDiv, "*"),
-             "*": (ast.Mult, "*"),
-             "-": (ast.Sub, "+"),
-             "%": (ast.Mod, None),
-             "**": (ast.Pow, "**"),
-             "<<": (ast.LShift, "+"),
-             ">>": (ast.RShift, "+"),
-             "|": (ast.BitOr, "|"),
-             "^": (ast.BitXor, None),
-             "&": (ast.BitAnd, "&"),
-             "@": (ast.MatMult, "@")}
-
-    @special(["+", "*", "|"], [many(FORM)])
-    @special(["-", "/", "&", "@"], [oneplus(FORM)])
-    @special(["**", "//", "<<", ">>"], [times(2, Inf, FORM)])
-    @special(["%", "^"], [times(2, 2, FORM)])
-    def compile_maths_expression(self, expr, root, args):
-        if len(args) == 0:
-            # Return the identity element for this operator.
-            return asty.Num(expr, n=(
-                {"+": 0, "|": 0, "*": 1}[root]))
-
-        if len(args) == 1:
-            if root == "/":
-                # Compute the reciprocal of the argument.
-                args = [Integer(1).replace(expr), args[0]]
-            elif root in ("+", "-"):
-                # Apply unary plus or unary minus to the argument.
-                op = {"+": ast.UAdd, "-": ast.USub}[root]()
-                ret = self.compile(args[0])
-                return ret + asty.UnaryOp(expr, op=op, operand=ret.force_expr)
-            else:
-                # Return the argument unchanged.
-                return self.compile(args[0])
-
-        op = self.m_ops[root][0]
-        right_associative = root == "**"
-        ret = self.compile(args[-1 if right_associative else 0])
-        for child in args[-2 if right_associative else 1 ::
-                          -1 if right_associative else 1]:
-            left_expr = ret.force_expr
-            ret += self.compile(child)
-            right_expr = ret.force_expr
-            if right_associative:
-                left_expr, right_expr = right_expr, left_expr
-            ret += asty.BinOp(expr, left=left_expr, op=op(), right=right_expr)
-
-        return ret
-
-    a_ops = {x + "=": v for x, v in m_ops.items()}
-
-    @special([x for x, (_, v) in a_ops.items() if v is not None], [FORM, oneplus(FORM)])
-    @special([x for x, (_, v) in a_ops.items() if v is None], [FORM, times(1, 1, FORM)])
-    def compile_augassign_expression(self, expr, root, target, values):
-        if len(values) > 1:
-            return self.compile(mkexpr(root, [target],
-                mkexpr(self.a_ops[root][1], rest=values)).replace(expr))
-
-        op = self.a_ops[root][0]
-        target = self._storeize(target, self.compile(target))
-        ret = self.compile(values[0])
-        return ret + asty.AugAssign(
-            expr, target=target, value=ret.force_expr, op=op())
 
     @special("setv", [many(OPTIONAL_ANNOTATION + FORM + FORM)])
     @special(((3, 8), "setx"), [times(1, 1, SYM + FORM)])

@@ -2,10 +2,12 @@ import ast
 
 import hy
 from funcparserlib.parser import many, oneplus
-from hy.compiler import Result, asty, maybe, mkexpr
+from hy.compiler import Result, asty, is_unpack, maybe, mkexpr
 from hy.lex import mangle, unmangle
-from hy.model_patterns import FORM, SYM, brackets, sym
-from hy.models import Expression, Symbol
+from hy.model_patterns import FORM, SYM, brackets, sym, times
+from hy.models import Expression, Integer, Symbol
+
+Inf = float("inf")
 
 
 @hy.macros.macro("do")
@@ -187,9 +189,11 @@ def compile_index_expression(compiler, obj, indices):
             compiler.this,
             value=ret.force_expr,
             slice=ast.Index(value=ix),
-            ctx=ast.Load())
+            ctx=ast.Load(),
+        )
 
     return ret
+
 
 @hy.macros.pattern_macro(".", [FORM, many(SYM | brackets(FORM))])
 def compile_attribute_access(compiler, invocant, keys):
@@ -197,16 +201,281 @@ def compile_attribute_access(compiler, invocant, keys):
 
     for attr in keys:
         if isinstance(attr, Symbol):
-            ret += asty.Attribute(attr,
-                                    value=ret.force_expr,
-                                    attr=mangle(attr),
-                                    ctx=ast.Load())
-        else: # attr is a hy List
+            ret += asty.Attribute(
+                attr, value=ret.force_expr, attr=mangle(attr), ctx=ast.Load()
+            )
+        else:  # attr is a hy List
             compiled_attr = compiler.compile(attr[0])
-            ret = compiled_attr + ret + asty.Subscript(
-                attr,
-                value=ret.force_expr,
-                slice=ast.Index(value=compiled_attr.force_expr),
-                ctx=ast.Load())
+            ret = (
+                compiled_attr
+                + ret
+                + asty.Subscript(
+                    attr,
+                    value=ret.force_expr,
+                    slice=ast.Index(value=compiled_attr.force_expr),
+                    ctx=ast.Load(),
+                )
+            )
 
     return ret
+
+
+@hy.macros.macro("del")
+def compile_del_expression(compiler, *args):
+    if not args:
+        return Result() + asty.Pass(compiler.this)
+
+    del_targets = []
+    ret = Result()
+    for target in args:
+        compiled_target = compiler.compile(target)
+        ret += compiled_target
+        del_targets.append(compiler._storeize(target, compiled_target, ast.Del))
+
+    return ret + asty.Delete(compiler.this, targets=del_targets)
+
+
+@hy.macros.macro("cut")
+def compile_cut_expression(compiler, obj, lower=None, upper=None, step=None):
+    ret = [Result()]
+
+    def c(e):
+        ret[0] += compiler.compile(e)
+        return ret[0].force_expr
+
+    if upper is None:
+        # cut with single index is an upper bound,
+        # this is consistent with slice and islice
+        upper = lower
+        lower = Symbol("None")
+
+    s = asty.Subscript(
+        compiler.this,
+        value=c(obj),
+        slice=asty.Slice(compiler.this, lower=c(lower), upper=c(upper), step=c(step)),
+        ctx=ast.Load(),
+    )
+    return ret[0] + s
+
+
+_decoratables = (ast.FunctionDef, ast.ClassDef, ast.AsyncFunctionDef)
+
+
+@hy.macros.macro("with-decorator")
+def compile_decorate_expression(compiler, arg, *args):
+    args = [arg, *args]
+    decs, fn = args[:-1], compiler.compile(args[-1])
+    if not fn.stmts or not isinstance(fn.stmts[-1], _decoratables):
+        raise compiler._syntax_error(args[-1], "Decorated a non-function")
+    decs, ret, _ = compiler._compile_collect(decs)
+    fn.stmts[-1].decorator_list = decs + fn.stmts[-1].decorator_list
+    return ret + fn
+
+
+@hy.macros.macro(",")
+def compile_tuple(compiler, *args):
+    elts, ret, _ = compiler._compile_collect(args)
+    return ret + asty.Tuple(compiler.this, elts=elts, ctx=ast.Load())
+
+
+@hy.macros.macro("not")
+@hy.macros.macro("~")
+def compile_unary_operator(compiler, arg):
+    root = str(compiler.this[0])
+    ops = {"not": ast.Not, "~": ast.Invert}
+    operand = compiler.compile(arg)
+    return operand + asty.UnaryOp(
+        compiler.this, op=ops[root](), operand=operand.force_expr
+    )
+
+
+def fallback_on_call(compiler, root, args):
+    func = compiler.compile(root)
+
+    args, ret, keywords = compiler._compile_collect(args, with_kwargs=True)
+
+    return (
+        func
+        + ret
+        + asty.Call(compiler.this, func=func.expr, args=args, keywords=keywords)
+    )
+
+
+@hy.macros.macro("and")
+@hy.macros.macro("or")
+def compile_logical_or_and_and_operator(compiler, *args):
+    operator = str(compiler.this[0])
+    # and/or can't unpack so we have to fallback on shadowed operators
+    if any(is_unpack("iterable", arg) for arg in args):
+        return fallback_on_call(compiler, compiler.this[0], args)
+
+    ops = {"and": (ast.And, True), "or": (ast.Or, None)}
+    opnode, default = ops[operator]
+    osym = compiler.this[0]
+    if len(args) == 0:
+        return Result() + asty.Constant(osym, value=default)
+    elif len(args) == 1:
+        return compiler.compile(args[0])
+    ret = Result()
+    values = list(map(compiler.compile, args))
+    if any(value.stmts for value in values):
+        # Compile it to an if...else sequence
+        var = compiler.get_anon_var()
+        name = asty.Name(osym, id=var, ctx=ast.Store())
+        expr_name = asty.Name(osym, id=var, ctx=ast.Load())
+        temp_variables = [name, expr_name]
+
+        def make_assign(value, node=None):
+            positioned_name = asty.Name(node or osym, id=var, ctx=ast.Store())
+            temp_variables.append(positioned_name)
+            return asty.Assign(node or osym, targets=[positioned_name], value=value)
+
+        current = root = []
+        for i, value in enumerate(values):
+            if value.stmts:
+                node = value.stmts[0]
+                current.extend(value.stmts)
+            else:
+                node = value.expr
+            current.append(make_assign(value.force_expr, value.force_expr))
+            if i == len(values) - 1:
+                # Skip a redundant 'if'.
+                break
+            if operator == "and":
+                cond = expr_name
+            else:
+                cond = asty.UnaryOp(node, op=ast.Not(), operand=expr_name)
+            current.append(asty.If(node, test=cond, body=[], orelse=[]))
+            current = current[-1].body
+        ret = sum(root, ret)
+        ret += Result(expr=expr_name, temp_variables=temp_variables)
+    else:
+        ret += asty.BoolOp(
+            osym, op=opnode(), values=[value.force_expr for value in values]
+        )
+    return ret
+
+
+_c_ops = {
+    "=": ast.Eq,
+    "!=": ast.NotEq,
+    "<": ast.Lt,
+    "<=": ast.LtE,
+    ">": ast.Gt,
+    ">=": ast.GtE,
+    "is": ast.Is,
+    "is-not": ast.IsNot,
+    "in": ast.In,
+    "not-in": ast.NotIn,
+}
+_c_ops = {mangle(k): v for k, v in _c_ops.items()}
+
+
+def _get_c_op(compiler, sym):
+    k = mangle(sym)
+    if k not in compiler._c_ops:
+        raise compiler._syntax_error(sym, "Illegal comparison operator: " + str(sym))
+    return compiler._c_ops[k]()
+
+
+@hy.macros.pattern_macro(["=", "is", "<", "<=", ">", ">="], [oneplus(FORM)])
+@hy.macros.pattern_macro(["!=", "is-not", "in", "not-in"], [times(2, Inf, FORM)])
+def compile_compare_op_expression(compiler, args):
+    if any(is_unpack("iterable", arg) for arg in args):
+        return fallback_on_call(compiler, compiler.this[0], args)
+
+    if len(args) == 1:
+        return compiler.compile(args[0]) + asty.Constant(compiler.this, value=True)
+
+    ops = [_get_c_op(compiler, compiler.this[0]) for _ in args[1:]]
+    exprs, ret, _ = compiler._compile_collect(args)
+    return ret + asty.Compare(
+        compiler.this, left=exprs[0], ops=ops, comparators=exprs[1:]
+    )
+
+
+# The second element of each tuple below is an aggregation operator
+# that's used for augmented assignment with three or more arguments.
+m_ops = {
+    "+": (ast.Add, "+"),
+    "/": (ast.Div, "*"),
+    "//": (ast.FloorDiv, "*"),
+    "*": (ast.Mult, "*"),
+    "-": (ast.Sub, "+"),
+    "%": (ast.Mod, None),
+    "**": (ast.Pow, "**"),
+    "<<": (ast.LShift, "+"),
+    ">>": (ast.RShift, "+"),
+    "|": (ast.BitOr, "|"),
+    "^": (ast.BitXor, None),
+    "&": (ast.BitAnd, "&"),
+    "@": (ast.MatMult, "@"),
+}
+
+
+@hy.macros.pattern_macro(["+", "*", "|"], [many(FORM)])
+@hy.macros.pattern_macro(["-", "/", "&", "@", "**", "//", "<<", ">>"], [oneplus(FORM)])
+@hy.macros.pattern_macro(["%", "^"], [times(1, 2, FORM)])
+def compile_maths_expression(compiler, args):
+    root = str(compiler.this[0])
+    if any(is_unpack("iterable", arg) for arg in args) or (
+        len(args) == 1 and (root in ["**", "//", "<<", ">>", "%", "^"])
+    ):
+        return fallback_on_call(compiler, compiler.this[0], args)
+    if len(args) == 0:
+        # Return the identity element for this operator.
+        return Result() + asty.Num(compiler.this, n=({"+": 0, "|": 0, "*": 1}[root]))
+
+    if len(args) == 1:
+        if root == "/":
+            # Compute the reciprocal of the argument.
+            args = [Integer(1).replace(compiler.this), args[0]]
+        elif root in ("+", "-"):
+            # Apply unary plus or unary minus to the argument.
+            op = {"+": ast.UAdd, "-": ast.USub}[root]()
+            ret = compiler.compile(args[0])
+            return ret + asty.UnaryOp(compiler.this, op=op, operand=ret.force_expr)
+        else:
+            # Return the argument unchanged.
+            return compiler.compile(args[0])
+
+    op = compiler.m_ops[root][0]
+    right_associative = root == "**"
+    ret = compiler.compile(args[-1 if right_associative else 0])
+    for child in args[-2 if right_associative else 1 :: -1 if right_associative else 1]:
+        left_expr = ret.force_expr
+        ret += compiler.compile(child)
+        right_expr = ret.force_expr
+        if right_associative:
+            left_expr, right_expr = right_expr, left_expr
+        ret += asty.BinOp(compiler.this, left=left_expr, op=op(), right=right_expr)
+
+    return ret
+
+
+a_ops = {x + "=": v for x, v in m_ops.items()}
+
+
+@hy.macros.pattern_macro(
+    [x for x, (_, v) in a_ops.items() if v is not None], [FORM, oneplus(FORM)]
+)
+@hy.macros.pattern_macro(
+    [x for x, (_, v) in a_ops.items() if v is None], [FORM, times(1, 1, FORM)]
+)
+def compile_augassign_expression(compiler, target, values):
+    if any(is_unpack("iterable", arg) for arg in values):
+        return fallback_on_call(compiler, compiler.this[0], values)
+    root = str(compiler.this[0])
+    if len(values) > 1:
+        return compiler.compile(
+            mkexpr(
+                root, [target], mkexpr(compiler.a_ops[root][1], rest=values)
+            ).replace(compiler.this)
+        )
+
+    op = compiler.a_ops[root][0]
+    target = compiler._storeize(target, compiler.compile(target))
+    ret = compiler.compile(values[0])
+    return ret + asty.AugAssign(
+        compiler.this, target=target, value=ret.force_expr, op=op()
+    )
