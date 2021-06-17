@@ -1,10 +1,10 @@
 import ast
 
 import hy
-from funcparserlib.parser import oneplus
+from funcparserlib.parser import many, oneplus
 from hy.compiler import Result, asty, maybe, mkexpr
 from hy.lex import mangle, unmangle
-from hy.model_patterns import FORM, SYM, sym
+from hy.model_patterns import FORM, SYM, brackets, sym
 from hy.models import Expression, Symbol
 
 
@@ -175,3 +175,38 @@ def compile_yield_from_or_await_expression(compiler, arg):
     ret = Result() + compiler.compile(arg)
     node = asty.YieldFrom if compiler.this[0] == Symbol("yield-from") else asty.Await
     return ret + node(compiler.this, value=ret.force_expr)
+
+
+@hy.macros.pattern_macro("get", [FORM, oneplus(FORM)])
+def compile_index_expression(compiler, obj, indices):
+    indices, ret, _ = compiler._compile_collect(indices)
+    ret += compiler.compile(obj)
+
+    for ix in indices:
+        ret += asty.Subscript(
+            compiler.this,
+            value=ret.force_expr,
+            slice=ast.Index(value=ix),
+            ctx=ast.Load())
+
+    return ret
+
+@hy.macros.pattern_macro(".", [FORM, many(SYM | brackets(FORM))])
+def compile_attribute_access(compiler, invocant, keys):
+    ret = compiler.compile(invocant)
+
+    for attr in keys:
+        if isinstance(attr, Symbol):
+            ret += asty.Attribute(attr,
+                                    value=ret.force_expr,
+                                    attr=mangle(attr),
+                                    ctx=ast.Load())
+        else: # attr is a hy List
+            compiled_attr = compiler.compile(attr[0])
+            ret = compiled_attr + ret + asty.Subscript(
+                attr,
+                value=ret.force_expr,
+                slice=ast.Index(value=compiled_attr.force_expr),
+                ctx=ast.Load())
+
+    return ret

@@ -874,39 +874,6 @@ class HyASTCompiler(object):
             expr, type=types.expr, name=name,
             body=body.stmts or [asty.Pass(expr)])
 
-    @special("get", [FORM, oneplus(FORM)])
-    def compile_index_expression(self, expr, name, obj, indices):
-        indices, ret, _ = self._compile_collect(indices)
-        ret += self.compile(obj)
-
-        for ix in indices:
-            ret += asty.Subscript(
-                expr,
-                value=ret.force_expr,
-                slice=ast.Index(value=ix),
-                ctx=ast.Load())
-
-        return ret
-
-    @special(".", [FORM, many(SYM | brackets(FORM))])
-    def compile_attribute_access(self, expr, name, invocant, keys):
-        ret = self.compile(invocant)
-
-        for attr in keys:
-            if isinstance(attr, Symbol):
-                ret += asty.Attribute(attr,
-                                      value=ret.force_expr,
-                                      attr=mangle(attr),
-                                      ctx=ast.Load())
-            else: # attr is a hy List
-                compiled_attr = self.compile(attr[0])
-                ret = compiled_attr + ret + asty.Subscript(
-                    attr,
-                    value=ret.force_expr,
-                    slice=ast.Index(value=compiled_attr.force_expr),
-                    ctx=ast.Load())
-
-        return ret
 
     @special("del", [many(FORM)])
     def compile_del_expression(self, expr, name, args):
