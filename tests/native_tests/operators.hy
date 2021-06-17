@@ -32,7 +32,7 @@
 (defmacro forbid [expr]
   `(assert (try
     (hy.eval '~expr)
-    (except [[TypeError SyntaxError]] True)
+    (except [[TypeError SyntaxError hy.errors.HyMacroExpansionError]] True)
     (else (raise AssertionError)))))
 
 
