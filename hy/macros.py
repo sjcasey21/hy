@@ -58,7 +58,7 @@ def pattern_macro(name, parser):
         module = inspect.getmodule(fn)
         module_macros = module.__dict__.setdefault("__macros__", {})
         module_macros[mname] = wrapper
-        return wrapper
+        return fn
 
     return _
 

@@ -254,7 +254,7 @@ class Result(object):
 
     def replace(self, other):
         # This break line number tracking, but Results instances derive their
-        # lineinfo their compiled statements and those can't be changed easily
+        # lineinfo from their compiled statements and those can't be changed easily
         pass
 
     def expr_as_stmt(self):
@@ -873,47 +873,6 @@ class HyASTCompiler(object):
         return types + asty.ExceptHandler(
             expr, type=types.expr, name=name,
             body=body.stmts or [asty.Pass(expr)])
-
-    @special(["break", "continue"], [])
-    def compile_break_or_continue_expression(self, expr, root):
-        return (asty.Break if root == "break" else asty.Continue)(expr)
-
-    @special("assert", [FORM, maybe(FORM)])
-    def compile_assert_expression(self, expr, root, test, msg):
-        if msg is None or type(msg) is Symbol:
-            ret = self.compile(test)
-            return ret + asty.Assert(
-                expr,
-                test=ret.force_expr,
-                msg=(None if msg is None else self.compile(msg).force_expr))
-
-        # The `msg` part may involve statements, which we only
-        # want to be executed if the assertion fails. Rewrite the
-        # form to set `msg` to a variable.
-        msg_var = self.get_anon_var()
-        return self.compile(mkexpr(
-            'if', mkexpr('and', '__debug__', mkexpr('not', [test])),
-                mkexpr('do',
-                    mkexpr('setv', msg_var, [msg]),
-                    mkexpr('assert', 'False', msg_var))).replace(expr))
-
-    @special(["global", "nonlocal"], [oneplus(SYM)])
-    def compile_global_or_nonlocal(self, expr, root, syms):
-        node = asty.Global if root == "global" else asty.Nonlocal
-        return node(expr, names=list(map(mangle, syms)))
-
-    @special("yield", [maybe(FORM)])
-    def compile_yield_expression(self, expr, root, arg):
-        ret = Result()
-        if arg is not None:
-            ret += self.compile(arg)
-        return ret + asty.Yield(expr, value=ret.force_expr)
-
-    @special(["yield-from", "await"], [FORM])
-    def compile_yield_from_or_await_expression(self, expr, root, arg):
-        ret = Result() + self.compile(arg)
-        node = asty.YieldFrom if root == "yield-from" else asty.Await
-        return ret + node(expr, value=ret.force_expr)
 
     @special("get", [FORM, oneplus(FORM)])
     def compile_index_expression(self, expr, name, obj, indices):

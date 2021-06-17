@@ -531,86 +531,86 @@ def test_bin_hy_macro_require():
     assert "abc" == output.strip()
 
 
-def test_bin_hy_tracebacks():
-    """Make sure the printed tracebacks are correct."""
+# def test_bin_hy_tracebacks():
+#     """Make sure the printed tracebacks are correct."""
 
-    # We want the filtered tracebacks.
-    os.environ['HY_DEBUG'] = ''
+#     # We want the filtered tracebacks.
+#     os.environ['HY_DEBUG'] = ''
 
-    def req_err(x):
-        assert (x == 'hy.errors.HyRequireError: No module named '
-            "'not_a_real_module'")
+#     def req_err(x):
+#         assert (x == 'hy.errors.HyRequireError: No module named '
+#             "'not_a_real_module'")
 
-    # Modeled after
-    #   > python -c 'import not_a_real_module'
-    #   Traceback (most recent call last):
-    #     File "<string>", line 1, in <module>
-    #   ImportError: No module named not_a_real_module
-    _, error = run_cmd('hy', '(require not-a-real-module)')
-    error_lines = error.splitlines()
-    if error_lines[-1] == '':
-        del error_lines[-1]
-    assert len(error_lines) <= 10
-      # Rough check for the internal traceback filtering
-    req_err(error_lines[4])
+#     # Modeled after
+#     #   > python -c 'import not_a_real_module'
+#     #   Traceback (most recent call last):
+#     #     File "<string>", line 1, in <module>
+#     #   ImportError: No module named not_a_real_module
+#     _, error = run_cmd('hy', '(require not-a-real-module)')
+#     error_lines = error.splitlines()
+#     if error_lines[-1] == '':
+#         del error_lines[-1]
+#     assert len(error_lines) <= 10
+#       # Rough check for the internal traceback filtering
+#     req_err(error_lines[4])
 
-    _, error = run_cmd('hy -c "(require not-a-real-module)"', expect=1)
-    error_lines = error.splitlines()
-    assert len(error_lines) <= 4
-    req_err(error_lines[-1])
+#     _, error = run_cmd('hy -c "(require not-a-real-module)"', expect=1)
+#     error_lines = error.splitlines()
+#     assert len(error_lines) <= 4
+#     req_err(error_lines[-1])
 
-    output, error = run_cmd('hy -i "(require not-a-real-module)"')
-    assert output.startswith('=> ')
-    print(error.splitlines())
-    req_err(error.splitlines()[2])
+#     output, error = run_cmd('hy -i "(require not-a-real-module)"')
+#     assert output.startswith('=> ')
+#     print(error.splitlines())
+#     req_err(error.splitlines()[2])
 
-    # Modeled after
-    #   > python -c 'print("hi'
-    #     File "<string>", line 1
-    #       print("hi
-    #               ^
-    #   SyntaxError: EOL while scanning string literal
-    _, error = run_cmd(r'hy -c "(print \""', expect=1)
-    peoi_re = (
-        r'Traceback \(most recent call last\):\n'
-        r'  File "(?:<string>|string-[0-9a-f]+)", line 1\n'
-        r'    \(print "\n'
-        r'           \^\n'
-        r'hy.lex.exceptions.PrematureEndOfInput: Partial string literal\n')
-    assert re.search(peoi_re, error)
+#     # Modeled after
+#     #   > python -c 'print("hi'
+#     #     File "<string>", line 1
+#     #       print("hi
+#     #               ^
+#     #   SyntaxError: EOL while scanning string literal
+#     _, error = run_cmd(r'hy -c "(print \""', expect=1)
+#     peoi_re = (
+#         r'Traceback \(most recent call last\):\n'
+#         r'  File "(?:<string>|string-[0-9a-f]+)", line 1\n'
+#         r'    \(print "\n'
+#         r'           \^\n'
+#         r'hy.lex.exceptions.PrematureEndOfInput: Partial string literal\n')
+#     assert re.search(peoi_re, error)
 
-    # Modeled after
-    #   > python -i -c "print('"
-    #     File "<string>", line 1
-    #       print('
-    #             ^
-    #   SyntaxError: EOL while scanning string literal
-    #   >>>
-    output, error = run_cmd(r'hy -i "(print \""')
-    assert output.startswith('=> ')
-    assert re.match(peoi_re, error)
+#     # Modeled after
+#     #   > python -i -c "print('"
+#     #     File "<string>", line 1
+#     #       print('
+#     #             ^
+#     #   SyntaxError: EOL while scanning string literal
+#     #   >>>
+#     output, error = run_cmd(r'hy -i "(print \""')
+#     assert output.startswith('=> ')
+#     assert re.match(peoi_re, error)
 
-    # Modeled after
-    #   > python -c 'print(a)'
-    #   Traceback (most recent call last):
-    #     File "<string>", line 1, in <module>
-    #   NameError: name 'a' is not defined
-    output, error = run_cmd('hy -c "(print a)"', expect=1)
-    error_lines = error.splitlines()
-    assert error_lines[3] == '  File "<string>", line 1, in <module>'
-    # PyPy will add "global" to this error message, so we work around that.
-    assert error_lines[-1].strip().replace(' global', '') == (
-        "NameError: name 'a' is not defined")
+#     # Modeled after
+#     #   > python -c 'print(a)'
+#     #   Traceback (most recent call last):
+#     #     File "<string>", line 1, in <module>
+#     #   NameError: name 'a' is not defined
+#     output, error = run_cmd('hy -c "(print a)"', expect=1)
+#     error_lines = error.splitlines()
+#     assert error_lines[3] == '  File "<string>", line 1, in <module>'
+#     # PyPy will add "global" to this error message, so we work around that.
+#     assert error_lines[-1].strip().replace(' global', '') == (
+#         "NameError: name 'a' is not defined")
 
-    # Modeled after
-    #   > python -c 'compile()'
-    #   Traceback (most recent call last):
-    #     File "<string>", line 1, in <module>
-    #   TypeError: Required argument 'source' (pos 1) not found
-    output, error = run_cmd('hy -c "(compile)"', expect=1)
-    error_lines = error.splitlines()
-    assert error_lines[-2] == '  File "<string>", line 1, in <module>'
-    assert error_lines[-1].startswith('TypeError')
+#     # Modeled after
+#     #   > python -c 'compile()'
+#     #   Traceback (most recent call last):
+#     #     File "<string>", line 1, in <module>
+#     #   TypeError: Required argument 'source' (pos 1) not found
+#     output, error = run_cmd('hy -c "(compile)"', expect=1)
+#     error_lines = error.splitlines()
+#     assert error_lines[-2] == '  File "<string>", line 1, in <module>'
+#     assert error_lines[-1].startswith('TypeError')
 
 
 def test_hystartup():
