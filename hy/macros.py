@@ -257,7 +257,7 @@ class MacroExceptions():
             return False
 
 
-def macroexpand(tree, module, compiler=None, once=False):
+def macroexpand(tree, module, compiler=None, once=False, result_ok=True):
     """Expand the toplevel macros for the given Hy AST tree.
 
     Load the macros from the given `module`, then expand the (top-level) macros
@@ -321,7 +321,7 @@ def macroexpand(tree, module, compiler=None, once=False):
             obj = m(compiler, *tree[1:])
             from hy.compiler import Result
             if isinstance(obj, Result):
-                return obj
+                return obj if result_ok else tree
 
             if isinstance(obj, Expression):
                 obj.module = inspect.getmodule(m)
