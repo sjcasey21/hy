@@ -4,8 +4,8 @@ import hy
 from funcparserlib.parser import many, oneplus
 from hy.compiler import Result, asty, is_unpack, maybe, mkexpr
 from hy.lex import mangle, unmangle
-from hy.model_patterns import FORM, SYM, brackets, sym, times
-from hy.models import Expression, Integer, Symbol
+from hy.model_patterns import FORM, SYM, brackets, dolike, notpexpr, pexpr, sym, times
+from hy.models import Expression, Integer, List, Symbol
 
 Inf = float("inf")
 
@@ -373,9 +373,9 @@ _c_ops = {mangle(k): v for k, v in _c_ops.items()}
 
 def _get_c_op(compiler, sym):
     k = mangle(sym)
-    if k not in compiler._c_ops:
+    if k not in _c_ops:
         raise compiler._syntax_error(sym, "Illegal comparison operator: " + str(sym))
-    return compiler._c_ops[k]()
+    return _c_ops[k]()
 
 
 @hy.macros.pattern_macro(["=", "is", "<", "<=", ">", ">="], [oneplus(FORM)])
@@ -393,6 +393,18 @@ def compile_compare_op_expression(compiler, args):
         compiler.this, left=exprs[0], ops=ops, comparators=exprs[1:]
     )
 
+
+# @hy.macros.pattern_macro("chainc", [FORM, many(SYM + FORM)])
+# def compile_chained_comparison(compiler, arg1, args):
+#     ret = compiler.compile(arg1)
+#     arg1 = ret.force_expr
+
+#     ops = [_get_c_op(compiler, op) for op, _ in args]
+#     args, ret2, _ = compiler._compile_collect(
+#         [x for _, x in args])
+
+#     return ret + ret2 + asty.Compare(compiler.this,
+#         left=arg1, ops=ops, comparators=args)
 
 # The second element of each tuple below is an aggregation operator
 # that's used for augmented assignment with three or more arguments.
@@ -439,7 +451,7 @@ def compile_maths_expression(compiler, args):
             # Return the argument unchanged.
             return compiler.compile(args[0])
 
-    op = compiler.m_ops[root][0]
+    op = m_ops[root][0]
     right_associative = root == "**"
     ret = compiler.compile(args[-1 if right_associative else 0])
     for child in args[-2 if right_associative else 1 :: -1 if right_associative else 1]:
@@ -469,13 +481,176 @@ def compile_augassign_expression(compiler, target, values):
     if len(values) > 1:
         return compiler.compile(
             mkexpr(
-                root, [target], mkexpr(compiler.a_ops[root][1], rest=values)
+                root, [target], mkexpr(a_ops[root][1], rest=values)
             ).replace(compiler.this)
         )
 
-    op = compiler.a_ops[root][0]
+    op = a_ops[root][0]
     target = compiler._storeize(target, compiler.compile(target))
     ret = compiler.compile(values[0])
     return ret + asty.AugAssign(
         compiler.this, target=target, value=ret.force_expr, op=op()
     )
+
+
+@hy.macros.pattern_macro(
+    "try",
+    [
+        many(notpexpr("except", "else", "finally")),
+        many(
+            pexpr(
+                sym("except"),
+                brackets() | brackets(FORM) | brackets(SYM, FORM),
+                many(FORM),
+            )
+        ),
+        maybe(dolike("else")),
+        maybe(dolike("finally")),
+    ],
+)
+def compile_try_expression(compiler, body, catchers, orelse, finalbody):
+    body = compiler._compile_branch(body)
+
+    return_var = asty.Name(
+        compiler.this, id=mangle(compiler.get_anon_var()), ctx=ast.Store()
+    )
+
+    handler_results = Result()
+    handlers = []
+    for catcher in catchers:
+        handler_results += _compile_catch_expression(
+            compiler, catcher, return_var, *catcher
+        )
+        handlers.append(handler_results.stmts.pop())
+
+    if orelse is None:
+        orelse = []
+    else:
+        orelse = compiler._compile_branch(orelse)
+        orelse += asty.Assign(
+            compiler.this, targets=[return_var], value=orelse.force_expr
+        )
+        orelse += orelse.expr_as_stmt()
+        orelse = orelse.stmts
+
+    if finalbody is None:
+        finalbody = []
+    else:
+        finalbody = compiler._compile_branch(finalbody)
+        finalbody += finalbody.expr_as_stmt()
+        finalbody = finalbody.stmts
+
+    # Using (else) without (except) is verboten!
+    if orelse and not handlers:
+        raise compiler._syntax_error(
+            compiler.this, "`try' cannot have `else' without `except'"
+        )
+    # Likewise a bare (try) or (try BODY).
+    if not (handlers or finalbody):
+        raise compiler._syntax_error(
+            compiler.this, "`try' must have an `except' or `finally' clause"
+        )
+
+    returnable = Result(
+        expr=asty.Name(compiler.this, id=return_var.id, ctx=ast.Load()),
+        temp_variables=[return_var],
+    )
+    body += (
+        body.expr_as_stmt()
+        if orelse
+        else asty.Assign(compiler.this, targets=[return_var], value=body.force_expr)
+    )
+    body = body.stmts or [asty.Pass(compiler.this)]
+
+    x = asty.Try(
+        compiler.this, body=body, handlers=handlers, orelse=orelse, finalbody=finalbody
+    )
+    return handler_results + x + returnable
+
+
+def _compile_catch_expression(compiler, expr, var, exceptions, body):
+    # exceptions catch should be either:
+    # [[list of exceptions]]
+    # or
+    # [variable [list of exceptions]]
+    # or
+    # [variable exception]
+    # or
+    # [exception]
+    # or
+    # []
+
+    name = None
+    if len(exceptions) == 2:
+        name = mangle(compiler._nonconst(exceptions[0]))
+
+    exceptions_list = exceptions[-1] if exceptions else List()
+    if isinstance(exceptions_list, List):
+        if len(exceptions_list):
+            # [FooBar BarFoo] → catch Foobar and BarFoo exceptions
+            elts, types, _ = compiler._compile_collect(exceptions_list)
+            types += asty.Tuple(exceptions_list, elts=elts, ctx=ast.Load())
+        else:
+            # [] → all exceptions caught
+            types = Result()
+    else:
+        types = compiler.compile(exceptions_list)
+
+    body = compiler._compile_branch(body)
+    body += asty.Assign(expr, targets=[var], value=body.force_expr)
+    body += body.expr_as_stmt()
+
+    return types + asty.ExceptHandler(
+        expr, type=types.expr, name=name, body=body.stmts or [asty.Pass(expr)]
+    )
+
+
+@hy.macros.pattern_macro(
+    ["with", "with/a"],
+    [
+        (brackets(times(1, Inf, FORM + FORM)))
+        | brackets((FORM >> (lambda x: [(Symbol("_"), x)]))),
+        many(FORM),
+    ],
+)
+def compile_with_expression(compiler, args, body):
+    body = compiler._compile_branch(body)
+
+    # Store the result of the body in a tempvar
+    temp_var = compiler.get_anon_var()
+    name = asty.Name(compiler.this, id=mangle(temp_var), ctx=ast.Store())
+    body += asty.Assign(compiler.this, targets=[name], value=body.force_expr)
+    # Initialize the tempvar to None in case the `with` exits
+    # early with an exception.
+    initial_assign = asty.Assign(
+        compiler.this, targets=[name], value=asty.Constant(compiler.this, value=None)
+    )
+
+    ret = Result(stmts=[initial_assign])
+    items = []
+    for variable, ctx in args[0]:
+        ctx = compiler.compile(ctx)
+        ret += ctx
+        variable = (
+            None
+            if variable == Symbol("_")
+            else compiler._storeize(variable, compiler.compile(variable))
+        )
+        items.append(
+            asty.withitem(
+                compiler.this, context_expr=ctx.force_expr, optional_vars=variable
+            )
+        )
+
+    node = asty.With if str(compiler.this[0]) == "with" else asty.AsyncWith
+    ret += node(compiler.this, body=body.stmts, items=items)
+
+    # And make our expression context our temp variable
+    expr_name = asty.Name(compiler.this, id=mangle(temp_var), ctx=ast.Load())
+
+    ret += Result(expr=expr_name)
+    # We don't give the Result any temp_vars because we don't want
+    # Result.rename to touch `name`. Otherwise, initial_assign will
+    # clobber any preexisting value of the renamed-to variable.
+
+    return ret
