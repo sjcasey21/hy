@@ -3,14 +3,16 @@
 ;; This file is part of Hy, which is free software licensed under the Expat
 ;; license. See the LICENSE.
 
-(import sys keyword)
+(import sys keyword itertools)
 
 (setv _cache None)
 
 (defn special []
   "Return a frozenset of special operators, such as ``fn`` and ``+``."
-  (frozenset (map hy.unmangle
-    (.keys hy.compiler._special_form_compilers))))
+  (frozenset
+    (itertools.chain
+      (map hy.unmangle (.keys hy.core.special-macros.__macros__))
+      (map hy.unmangle (.keys hy.compiler._special_form_compilers)))))
 
 (defn names []
   "Return a frozenset of reserved symbol names.
