@@ -203,36 +203,64 @@ class Result(object):
         self._expr = value
 
     @property
-    def lineno(self):
+    def start_line(self):
         if self._expr is not None:
             return self._expr.lineno
         if self.stmts:
             return self.stmts[-1].lineno
         return None
 
+    @start_line.setter
+    def lineno(self, value):
+        if self._expr is not None:
+            self._expr.lineno = value
+        elif self.stmts:
+            self.stmts[-1].lineno = value
+
     @property
-    def col_offset(self):
+    def start_column(self):
         if self._expr is not None:
             return self._expr.col_offset
         if self.stmts:
             return self.stmts[-1].col_offset
         return None
 
+    @start_column.setter
+    def col_offset(self, value):
+        if self._expr is not None:
+            self._expr.col_offset = value
+        elif self.stmts:
+            self.stmts[-1].col_offset = value
+
     @property
-    def end_col_offset(self):
+    def end_column(self):
         if self._expr is not None:
             return self._expr.end_col_offset
         if self.stmts:
             return self.stmts[-1].end_col_offset
         return None
 
+    @end_column.setter
+    def end_col_offset(self, value):
+        if self._expr is not None:
+            self._expr.end_col_offset = value
+        elif self.stmts:
+            self.stmts[-1].end_col_offset = value
+
     @property
-    def end_lineno(self):
+    def end_line(self):
         if self._expr is not None:
             return self._expr.end_lineno
         if self.stmts:
             return self.stmts[-1].end_lineno
         return None
+
+    @end_line.setter
+    def end_line(self, value):
+        if self._expr is not None:
+            self._expr.end_lineno = value
+        elif self.stmts:
+            self.stmts[-1].end_lineno = value
 
     def is_expr(self):
         """Check whether I am a pure expression"""
@@ -251,10 +279,21 @@ class Result(object):
             lineno=self.stmts[-1].lineno if self.stmts else 0,
             col_offset=self.stmts[-1].col_offset if self.stmts else 0)
 
-    def replace(self, other):
-        # This break line number tracking, but Results instances derive their
-        # lineinfo from their compiled statements and those can't be changed easily
-        pass
+
+    properties = ["module", "start_line", "end_line", "start_column",
+                  "end_column"]
+
+    def replace(self, other, recursive=False):
+        if isinstance(other, (Object, Result)):
+            for attr in self.properties:
+                if not hasattr(self, attr) and hasattr(other, attr):
+                    setattr(self, attr, getattr(other, attr))
+        else:
+            raise TypeError("Can't replace a non Hy object '{}' with a Hy object '{}'".format(repr(other), repr(self)))
+
+        return self
+
+
 
     def expr_as_stmt(self):
         """Convert the Result's expression context to a statement

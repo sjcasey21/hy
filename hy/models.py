@@ -54,8 +54,8 @@ class Object(object):
     `abc` starting at the first column would have `start_column` 1 and
     `end_column` 3.
     """
-    properties = ["module", "_start_line", "_end_line", "_start_column",
-                  "_end_column"]
+    properties = ["module", "start_line", "end_line", "start_column",
+                  "end_column"]
 
     def replace(self, other, recursive=False):
         if isinstance(other, Object):
@@ -147,6 +147,9 @@ def as_model(x):
        True  ; True because ``as-model`` has walked the expression and promoted
              ; the literal int ``2`` to its model for ``(hy.model.Integer 2)``
     """
+    from hy.compiler import Result
+    if isinstance(x, Result):
+        return x
 
     new = _wrappers.get(type(x), lambda y: y)(x)
     if not isinstance(new, Object):
