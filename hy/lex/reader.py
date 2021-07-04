@@ -490,6 +490,10 @@ class HyParser:
         decorators, defn = node[:-1], node[-1]
         return mkexpr("with-decorator", *decorators, defn)
 
+    @reader_for("#(")
+    def tuple_list(self, _):
+        return mkexpr(",", *self.parse_nodes_until(")"))
+
     ###
     # Strings
     # these are more complicated because f-strings
