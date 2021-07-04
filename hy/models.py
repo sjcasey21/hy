@@ -116,7 +116,7 @@ _wrappers = {}
 
 
 def as_model(x):
-    """Recurisvely promote an object ``x`` into its canonical model form.
+    """Recursively promote an object ``x`` into its canonical model form.
 
     When creating macros its possible to return non-Hy model objects or
     even create an expression with non-Hy model elements::
