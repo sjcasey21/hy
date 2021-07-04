@@ -24,7 +24,7 @@ import builtins
 
 import hy
 
-from hy.lex import hy_parse, mangle
+from hy.lex import read_module, mangle
 from contextlib import contextmanager
 from hy.lex.exceptions import PrematureEndOfInput
 from hy.compiler import (HyASTCompiler, hy_eval, hy_compile,
@@ -158,7 +158,7 @@ class HyCompile(codeop.Compile, object):
         name = '{}-{}'.format(filename.strip('<>'), hash_digest)
 
         try:
-            hy_ast = hy_parse(source, filename=name)
+            hy_ast = read_module(source, filename=name)
         except Exception:
             # Capture a traceback without the compiler/REPL frames.
             sys.last_type, sys.last_value, sys.last_traceback = sys.exc_info()
@@ -168,7 +168,7 @@ class HyCompile(codeop.Compile, object):
         self._cache(source, name)
 
         try:
-            hy_ast = hy_parse(source, filename=filename)
+            hy_ast = read_module(source, filename=filename)
             root_ast = ast.Interactive if symbol == 'single' else ast.Module
 
             # Our compiler doesn't correspond to a real, fixed source file, so
@@ -304,7 +304,7 @@ class HyREPL(code.InteractiveConsole, object):
         self.locals['_hy_repl'] = self
 
         # Compile an empty statement to load the standard prelude
-        exec_ast = hy_compile(hy_parse(''), self.module, compiler=self.hy_compiler, import_stdlib=True)
+        exec_ast = hy_compile(read_module(''), self.module, compiler=self.hy_compiler, import_stdlib=True)
         if self.ast_callback:
             self.ast_callback(exec_ast, None)
 
@@ -459,7 +459,7 @@ def run_command(source, filename=None):
     __main__ = importlib.import_module('__main__')
     require("hy.cmdline", __main__, assignments="ALL")
     try:
-        tree = hy_parse(source, filename=filename)
+        tree = read_module(source, filename=filename)
     except HyLanguageError:
         hy_exc_handler(*sys.exc_info())
         return 1
@@ -759,7 +759,7 @@ def hy2py_main():
             source = source_file.read()
 
     with filtered_hy_exceptions():
-        hst = hy_parse(source, filename=filename)
+        hst = read_module(source, filename=filename)
 
     if options.with_source:
         _print_for_windows(hst)
