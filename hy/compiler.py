@@ -3,7 +3,7 @@
 # This file is part of Hy, which is free software licensed under the Expat
 # license. See the LICENSE.
 
-import ast, copy, importlib, inspect, keyword, pkgutil
+import ast, copy, importlib, inspect, keyword
 import traceback, types
 
 from funcparserlib.parser import NoParseError, many

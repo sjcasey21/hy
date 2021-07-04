@@ -9,7 +9,7 @@
 (import itertools)
 (import collections.abc [Iterable])
 (import hy.models [Keyword Symbol]
-        hy.lex [mangle unmangle]
+        hy.lex [mangle]
         hy.compiler [HyASTCompiler calling-module])
 
 (defn butlast [coll]
