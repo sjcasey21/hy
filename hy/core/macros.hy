@@ -605,15 +605,6 @@
        (sys.exit ~retval))))
 
 
-(defmacro "#@" [expr]
-  "with-decorator tag macro"
-  (if (not expr)
-      (raise (ValueError "missing function argument")))
-  (setv decorators (cut expr -1)
-        fndef (get expr -1))
-  `(with-decorator ~@decorators ~fndef))
-
-
 (defmacro comment [#* body]
   "Ignores body and always expands to None
 

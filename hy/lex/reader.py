@@ -48,19 +48,14 @@ class StringStateMachine:
 DEFAULT_TABLE = {}
 
 
-def reader_for(char, args=None):
-    def wrapper(f):
-        if args is not None:
-            DEFAULT_TABLE[char] = f(*args)
-        else:
-            DEFAULT_TABLE[char] = f
-        return f
-
-    return wrapper
-
-
 def sym(name):
     return Symbol(name, from_parser=True)
+
+
+def mkexpr(root, *args):
+    if isinstance(root, str):
+        root = sym(root)
+    return Expression((root, *args))
 
 
 def symbol_like(ident, from_parser=False):
@@ -106,10 +101,15 @@ def symbol_like(ident, from_parser=False):
     return sym(ident)
 
 
-def mkexpr(root, *args):
-    if isinstance(root, str):
-        root = sym(root)
-    return Expression((root, *args))
+def reader_for(char, args=None):
+    def wrapper(f):
+        if args is not None:
+            DEFAULT_TABLE[char] = f(*args)
+        else:
+            DEFAULT_TABLE[char] = f
+        return f
+
+    return wrapper
 
 
 class HyParser:
@@ -455,7 +455,8 @@ class HyParser:
 
         # fall back to old tag macro behavior
         tag = key + self.read_ident()
-        assert tag != key, "empty tag name"
+        if tag == key:
+            raise ValueError("empty tag name")
         return mkexpr(tag, self.parse_one_node())
 
     @reader_for("#_")
@@ -469,13 +470,25 @@ class HyParser:
         num_stars = 1
         while self.peek_and_getc("*"):
             num_stars += 1
-        assert num_stars <= 2, "too many stars"
+        if num_stars > 2:
+            raise ValueError("too many stars")
         if num_stars == 1:
             root = "unpack-iterable"
         else:
             root = "unpack-mapping"
         node = self.parse_one_node()
         return mkexpr(root, node)
+
+    @reader_for("#@")
+    def decorate(self, _):
+        node = self.parse_one_node()
+        if not isinstance(node, Expression):
+            raise ValueError("can only decorate function or class definitions")
+        if not node:
+            import hy.errors
+            raise hy.errors.HyMacroExpansionError("empty decoration")
+        decorators, defn = node[:-1], node[-1]
+        return mkexpr("with-decorator", *decorators, defn)
 
     ###
     # Strings

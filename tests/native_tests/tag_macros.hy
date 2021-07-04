@@ -118,4 +118,4 @@
 
   ;; https://github.com/hylang/hy/issues/1565
   (with [(pytest.raises hy.errors.HyMacroExpansionError)]  ; and not IndexError
-    (hy.eval '#@())))
+    (hy.read "#@()")))

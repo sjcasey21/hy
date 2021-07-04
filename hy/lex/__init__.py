@@ -4,6 +4,7 @@
 
 import re
 
+import hy.errors
 from hy.models import Expression, Symbol
 
 from .exceptions import LexException, PrematureEndOfInput  # NOQA
@@ -35,6 +36,8 @@ def read_many(source, filename=None):
         return parser.parse()
     except UnexpectedEOF as e:
         raise PrematureEndOfInput(e.msg, None, filename, source, *e.pos) from e
+    except hy.errors.HyError:
+        raise
     except Exception as e:
         raise LexException(str(e), None, filename, source, *parser.pos) from e
 
@@ -46,6 +49,8 @@ def read(source):
         return parser.parse_one_node()
     except UnexpectedEOF as e:
         raise PrematureEndOfInput(e.msg, None, filename, source, *e.pos) from e
+    except hy.errors.HyError:
+        raise
     except Exception as e:
         raise LexException(str(e), None, filename, source, *parser.pos) from e
 
