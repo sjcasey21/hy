@@ -3,7 +3,7 @@
 # license. See the LICENSE.
 
 from hy.macros import macro, macroexpand, macroexpand_1
-from hy.lex import tokenize
+from hy.lex import read
 
 from hy.models import String, List, Symbol, Expression, Float
 from hy.errors import HyMacroExpansionError
@@ -21,7 +21,7 @@ def tmac(ETname, *tree):
 
 def test_preprocessor_simple():
     """ Test basic macro expansion """
-    obj = macroexpand(tokenize('(test "one" "two")')[0],
+    obj = macroexpand(read('(test "one" "two")'),
                       __name__,
                       HyASTCompiler(__name__))
     assert obj == List([String("one"), String("two")])
@@ -30,7 +30,7 @@ def test_preprocessor_simple():
 
 def test_preprocessor_expression():
     """ Test that macro expansion doesn't recurse"""
-    obj = macroexpand(tokenize('(test (test "one" "two"))')[0],
+    obj = macroexpand(read('(test (test "one" "two"))'),
                       __name__,
                       HyASTCompiler(__name__))
 
@@ -42,14 +42,14 @@ def test_preprocessor_expression():
                                  String("two")])
 
     obj = List([String("one"), String("two")])
-    obj = tokenize('(shill ["one" "two"])')[0][1]
+    obj = read('(shill ["one" "two"])')[1]
     assert obj == macroexpand(obj, __name__, HyASTCompiler(__name__))
 
 
 def test_preprocessor_exceptions():
     """ Test that macro expansion raises appropriate exceptions"""
     with pytest.raises(HyMacroExpansionError) as excinfo:
-        macroexpand(tokenize('(when)')[0], __name__, HyASTCompiler(__name__))
+        macroexpand(read('(when)'), __name__, HyASTCompiler(__name__))
     assert "_hy_anon_" not in excinfo.value.msg
 
 

@@ -148,7 +148,7 @@
 (defn test-gensym-in-macros []
   (import ast)
   (import hy.compiler [hy-compile])
-  (import hy.lex [hy-parse])
+  (import hy.lex [read-module])
   (setv macro1 "(defmacro nif [expr pos zero neg]
       (setv g (hy.gensym))
       `(do
@@ -161,8 +161,8 @@
     ")
   ;; expand the macro twice, should use a different
   ;; gensym each time
-  (setv _ast1 (hy-compile (hy-parse macro1) __name__))
-  (setv _ast2 (hy-compile (hy-parse macro1) __name__))
+  (setv _ast1 (hy-compile (read-module macro1) __name__))
+  (setv _ast2 (hy-compile (read-module macro1) __name__))
   (setv s1 (ast.unparse _ast1))
   (setv s2 (ast.unparse _ast2))
   ;; and make sure there is something new that starts with _G\uffff
@@ -173,8 +173,16 @@
 
 (defn test-with-gensym []
   (import ast)
+<<<<<<< HEAD
   (import hy.compiler [hy-compile])
   (import hy.lex [hy-parse])
+||||||| parent of a1a2c8bf (convert tests to new reader api)
+  (import [hy.compiler [hy-compile]])
+  (import [hy.lex [hy-parse]])
+=======
+  (import [hy.compiler [hy-compile]])
+  (import [hy.lex [read-module]])
+>>>>>>> a1a2c8bf (convert tests to new reader api)
   (setv macro1 "(defmacro nif [expr pos zero neg]
       (with-gensyms [a]
         `(do
@@ -187,8 +195,8 @@
     ")
   ;; expand the macro twice, should use a different
   ;; gensym each time
-  (setv _ast1 (hy-compile (hy-parse macro1) __name__))
-  (setv _ast2 (hy-compile (hy-parse macro1) __name__))
+  (setv _ast1 (hy-compile (read-module macro1) __name__))
+  (setv _ast2 (hy-compile (read-module macro1) __name__))
   (setv s1 (ast.unparse _ast1))
   (setv s2 (ast.unparse _ast2))
   (assert (in (hy.mangle "_a\uffff") s1))
@@ -197,8 +205,16 @@
 
 (defn test-defmacro/g! []
   (import ast)
+<<<<<<< HEAD
   (import hy.compiler [hy-compile])
   (import hy.lex [hy-parse])
+||||||| parent of a1a2c8bf (convert tests to new reader api)
+  (import [hy.compiler [hy-compile]])
+  (import [hy.lex [hy-parse]])
+=======
+  (import [hy.compiler [hy-compile]])
+  (import [hy.lex [read-module]])
+>>>>>>> a1a2c8bf (convert tests to new reader api)
   (setv macro1 "(defmacro/g! nif [expr pos zero neg]
         `(do
            (setv ~g!res ~expr)
@@ -210,8 +226,8 @@
     ")
   ;; expand the macro twice, should use a different
   ;; gensym each time
-  (setv _ast1 (hy-compile (hy-parse macro1) __name__))
-  (setv _ast2 (hy-compile (hy-parse macro1) __name__))
+  (setv _ast1 (hy-compile (read-module macro1) __name__))
+  (setv _ast2 (hy-compile (read-module macro1) __name__))
   (setv s1 (ast.unparse _ast1))
   (setv s2 (ast.unparse _ast2))
   (assert (in (hy.mangle "_res\uffff") s1))
@@ -221,13 +237,21 @@
   ;; defmacro/g! didn't like numbers initially because they
   ;; don't have a startswith method and blew up during expansion
   (setv macro2 "(defmacro/g! two-point-zero [] `(+ (float 1) 1.0))")
-  (assert (hy-compile (hy-parse macro2) __name__)))
+  (assert (hy-compile (read-module macro2) __name__)))
 
 (defn test-defmacro! []
   ;; defmacro! must do everything defmacro/g! can
   (import ast)
+<<<<<<< HEAD
   (import hy.compiler [hy-compile])
   (import hy.lex [hy-parse])
+||||||| parent of a1a2c8bf (convert tests to new reader api)
+  (import [hy.compiler [hy-compile]])
+  (import [hy.lex [hy-parse]])
+=======
+  (import [hy.compiler [hy-compile]])
+  (import [hy.lex [read-module]])
+>>>>>>> a1a2c8bf (convert tests to new reader api)
   (setv macro1 "(defmacro! nif [expr pos zero neg]
         `(do
            (setv ~g!res ~expr)
@@ -239,8 +263,8 @@
     ")
   ;; expand the macro twice, should use a different
   ;; gensym each time
-  (setv _ast1 (hy-compile (hy-parse macro1) __name__))
-  (setv _ast2 (hy-compile (hy-parse macro1) __name__))
+  (setv _ast1 (hy-compile (read-module macro1) __name__))
+  (setv _ast2 (hy-compile (read-module macro1) __name__))
   (setv s1 (ast.unparse _ast1))
   (setv s2 (ast.unparse _ast2))
   (assert (in (hy.mangle "_res\uffff") s1))
@@ -250,7 +274,7 @@
   ;; defmacro/g! didn't like numbers initially because they
   ;; don't have a startswith method and blew up during expansion
   (setv macro2 "(defmacro! two-point-zero [] `(+ (float 1) 1.0))")
-  (assert (hy-compile (hy-parse macro2) __name__))
+  (assert (hy-compile (read-module macro2) __name__))
 
   (defmacro! foo! [o!foo] `(do ~g!foo ~g!foo))
   ;; test that o! becomes g!
@@ -495,9 +519,15 @@ in expansions."
 
 (defn test-macro-errors []
   (import traceback
+<<<<<<< HEAD
           hy.importer [hy-parse])
+||||||| parent of a1a2c8bf (convert tests to new reader api)
+          [hy.importer [hy-parse]])
+=======
+          [hy.lex [read-module]])
+>>>>>>> a1a2c8bf (convert tests to new reader api)
 
-  (setv test-expr (hy-parse "(defmacro blah [x] `(print ~@z)) (blah y)"))
+  (setv test-expr (read-module "(defmacro blah [x] `(print ~@z)) (blah y)"))
 
   (with [excinfo (pytest.raises HyMacroExpansionError)]
     (hy.eval test-expr))

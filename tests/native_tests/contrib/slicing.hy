@@ -1,6 +1,6 @@
 (import pytest
         hy.errors [HyMacroExpansionError HySyntaxError]
-        hy.lex [hy-parse exceptions])
+        hy.lex [read-many exceptions])
 (require hy.contrib.slicing *)
 
 (defn test-ncuts-slicing []
@@ -30,12 +30,12 @@
 
   (assert (= #: ... Ellipsis))
 
-  (assert (= (hy.eval (hy-parse "#: 1:[1 2]:2")) :2))
-  (assert (= (hy.eval (hy-parse "#: 1:[1 2]")) [1 2]))
+  (assert (= (hy.eval (read-many "#: 1:[1 2]:2")) [(slice 1 None) [1 2] :2]))
+  (assert (= (hy.eval (read-many "#: 1:[1 2]")) [(slice 1 None) [1 2]]))
 
   (with [(pytest.raises TypeError)]
     ;; slice takes at most 3 args
-    (hy.eval (hy-parse "#: 1:2:3:4")))
+    (hy.eval (read-many "#: 1:2:3:4")))
 
   (with [(pytest.raises NameError)]
-    (hy.eval (hy-parse "#: 1:abc:2"))))
+    (hy.eval (read-many "#: 1:abc:2"))))

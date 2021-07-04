@@ -1539,35 +1539,17 @@ cee\"} dee" "ey bee\ncee dee"))
   (with [(pytest.raises NameError)]
     (setv x [#* spam]  y 1)))
 
-(defn test-read []
-  (import io [StringIO])
-
-  (setv stdin-buffer (StringIO "(+ 2 2)\n(- 2 2)"))
-  (assert (= (hy.eval (hy.read stdin-buffer)) 4))
-  (assert (isinstance (hy.read stdin-buffer) hy.models.Expression))
-
-  ; Multiline test
-  (setv stdin-buffer (StringIO "(\n+\n41\n1\n)\n(-\n2\n1\n)"))
-  (assert (= (hy.eval (hy.read stdin-buffer)) 42))
-  (assert (= (hy.eval (hy.read stdin-buffer)) 1))
-
-  ; EOF test
-  (setv stdin-buffer (StringIO "(+ 2 2)"))
-  (hy.read stdin-buffer)
-  (with [(pytest.raises EOFError)]
-    (hy.read stdin-buffer)))
-
 (defn test-read-str []
-  (assert (= (hy.read-str "(print 1)") '(print 1)))
-  (assert (is (type (hy.read-str "(print 1)")) (type '(print 1))))
+  (assert (= (hy.read "(print 1)") '(print 1)))
+  (assert (is (type (hy.read "(print 1)")) (type '(print 1))))
 
   ; Watch out for false values: https://github.com/hylang/hy/issues/1243
-  (assert (= (hy.read-str "\"\"") '""))
-  (assert (is (type (hy.read-str "\"\"")) (type '"")))
-  (assert (= (hy.read-str "[]") '[]))
-  (assert (is (type (hy.read-str "[]")) (type '[])))
-  (assert (= (hy.read-str "0") '0))
-  (assert (is (type (hy.read-str "0")) (type '0))))
+  (assert (= (hy.read "\"\"") '""))
+  (assert (is (type (hy.read "\"\"")) (type '"")))
+  (assert (= (hy.read "[]") '[]))
+  (assert (is (type (hy.read "[]")) (type '[])))
+  (assert (= (hy.read "0") '0))
+  (assert (is (type (hy.read "0")) (type '0))))
 
 (defn test-keyword-creation []
   (assert (= (hy.models.Keyword "foo") :foo))

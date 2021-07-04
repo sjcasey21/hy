@@ -15,7 +15,7 @@ from importlib import reload
 import pytest
 
 import hy
-from hy.lex import hy_parse
+from hy.lex import read_module
 from hy.errors import HyLanguageError
 from hy.lex.exceptions import PrematureEndOfInput
 from hy.compiler import hy_eval, hy_compile
@@ -53,7 +53,7 @@ def test_runpy():
 
 
 def test_stringer():
-    _ast = hy_compile(hy_parse("(defn square [x] (* x x))"), __name__, import_stdlib=False)
+    _ast = hy_compile(read_module("(defn square [x] (* x x))"), __name__, import_stdlib=False)
 
     assert type(_ast.body[0]) == ast.FunctionDef
 
@@ -74,7 +74,7 @@ def test_import_error_reporting():
     "Make sure that (import) reports errors correctly."
 
     with pytest.raises(HyLanguageError):
-        hy_compile(hy_parse("(import \"sys\")"), __name__)
+        hy_compile(read_module("(import \"sys\")"), __name__)
 
 
 def test_import_error_cleanup():
@@ -114,7 +114,7 @@ def test_import_autocompiles():
 
 def test_eval():
     def eval_str(s):
-        return hy_eval(hy.read_str(s), filename='<string>', source=s)
+        return hy_eval(hy.read(s), filename='<string>', source=s)
 
     assert eval_str('[1 2 3]') == [1, 2, 3]
     assert eval_str('{"dog" "bark" "cat" "meow"}') == {
@@ -294,4 +294,4 @@ def test_docstring():
 def test_hy_python_require():
     # https://github.com/hylang/hy/issues/1911
     test = "(do (require tests.resources.macros [test-macro]) (test-macro) blah)"
-    assert hy.eval(hy.read_str(test)) == 1
+    assert hy.eval(hy.read(test)) == 1

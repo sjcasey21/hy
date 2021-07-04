@@ -5,7 +5,7 @@
 
 from hy.compiler import hy_compile, hy_eval
 from hy.errors import HyLanguageError, HyError
-from hy.lex import hy_parse
+from hy.lex import read_module
 from hy.lex.exceptions import LexException, PrematureEndOfInput
 
 import ast
@@ -22,16 +22,16 @@ def _ast_spotcheck(arg, root, secondary):
 
 
 def can_compile(expr, import_stdlib=False):
-    return hy_compile(hy_parse(expr), __name__, import_stdlib=import_stdlib)
+    return hy_compile(read_module(expr), __name__, import_stdlib=import_stdlib)
 
 
 def can_eval(expr):
-    return hy_eval(hy_parse(expr))
+    return hy_eval(read_module(expr))
 
 
 def cant_compile(expr):
     with pytest.raises(HyError) as excinfo:
-        hy_compile(hy_parse(expr), __name__)
+        hy_compile(read_module(expr), __name__)
     # Anything that can't be compiled should raise a user friendly
     # error, otherwise it's a compiler bug.
     assert issubclass(excinfo.type, HyLanguageError)
