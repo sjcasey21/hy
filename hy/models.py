@@ -202,10 +202,12 @@ class Symbol(Object, str):
         s = str(s)
         if not from_parser:
             # Check that the symbol is syntactically legal.
-            from hy.lex.lexer import identifier
-            from hy.lex.parser import symbol_like
-            if not re.fullmatch(identifier, s) or symbol_like(s) is not None:
+            # import here to prevent circular imports.
+            from hy.lex.reader import symbol_like
+            sym = symbol_like(s)
+            if not isinstance(sym, Symbol):
                 raise ValueError(f'Syntactically illegal symbol: {s!r}')
+            return sym
         return super(Symbol, cls).__new__(cls, s)
 
 _wrappers[bool] = lambda x: Symbol("True") if x else Symbol("False")
@@ -221,8 +223,11 @@ class Keyword(Object):
         value = str(value)
         if not from_parser:
             # Check that the keyword is syntactically legal.
-            from hy.lex.lexer import identifier
-            if value and (not re.fullmatch(identifier, value) or "." in value):
+            # import here to prevent circular imports.
+            from hy.lex.reader import NON_IDENT
+            if value and ("." in value
+                          or any(c.isspace() for c in value)
+                          or set(NON_IDENT).intersection(value)):
                 raise ValueError(f'Syntactically illegal keyword: {":" + value!r}')
         self.name = value
 
