@@ -36,6 +36,8 @@ from hy.completer import completion, Completer
 from hy.macros import macro, require
 from hy.models import Expression, String, Symbol
 
+from hy._compat import PY3_9
+
 
 sys.last_type = None
 sys.last_value = None
@@ -770,7 +772,11 @@ def hy2py_main():
         _ast = hy_compile(hst, '__main__', filename=filename, source=source)
 
     if options.with_ast:
-        _print_for_windows(ast.dump(_ast))
+        if PY3_9:
+            dump = ast.dump(_ast, indent=2)
+        else:
+            dump = ast.dump(_ast)
+        _print_for_windows(dump)
         print()
         print()
 
