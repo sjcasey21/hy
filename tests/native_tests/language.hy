@@ -1152,7 +1152,7 @@
 (defn test-format-strings []
   (assert (= f"hello world" "hello world"))
   (assert (= f"hello {(+ 1 1)} world" "hello 2 world"))
-  (assert (= f"a{ (.upper (+ \"g\" \"k\")) }z" "aGKz"))
+  (assert (= f"a{ (.upper (+ "g" "k")) }z" "aGKz"))
   (assert (= f"a{1}{2}b" "a12b"))
 
   ; Referring to a variable
@@ -1169,8 +1169,8 @@
      3)}z" "a6z"))
 
   ; Newlines in replacement fields
-  (assert (= f"ey {\"bee
-cee\"} dee" "ey bee\ncee dee"))
+  (assert (= f"ey {"bee
+cee"} dee" "ey bee\ncee dee"))
 
   ; Conversion characters and format specifiers
   (setv p:9 "other")
@@ -1185,9 +1185,10 @@ cee\"} dee" "ey bee\ncee dee"))
   (assert (= f"a{!r !r}" "a'bar'"))
 
   ; Fun with `r`
-  (assert (= f"hello {r\"\\n\"}" r"hello \n"))
-  (assert (= f"hello {r\"\n\"}" "hello \n"))
+  ;; (assert (= f"hello {r\"\\n\"}" r"hello \n"))
+  ;; (assert (= f"hello {r\"\n\"}" "hello \n"))
     ; The `r` applies too late to avoid interpreting a backslash.
+    ; addendum: not any more!
 
   ; Braces escaped via doubling
   (assert (= f"ab{{cde" "ab{cde"))

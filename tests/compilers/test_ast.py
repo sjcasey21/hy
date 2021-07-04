@@ -488,8 +488,8 @@ def test_format_string():
     assert cant_compile('f"hello {(+ 1 1) world"')
     assert cant_compile('f"hello (+ 1 1)} world"')
     assert cant_compile('f"hello {(+ 1 1} world"')
-    assert can_compile(r'f"hello {\"n\"} world"')
-    assert can_compile(r'f"hello {\"\\n\"} world"')
+    assert can_compile(r'f"hello {"n"} world"')
+    assert can_compile(r'f"hello {"\\n"} world"')
 
 
 def test_ast_bracket_string():
