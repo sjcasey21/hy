@@ -522,11 +522,11 @@ def test_for_compile_error():
     """Ensure we get compile error in tricky 'for' cases"""
     with pytest.raises(PrematureEndOfInput) as excinfo:
         can_compile("(fn [] (for)")
-    assert excinfo.value.msg == "Premature end of input"
+    assert excinfo.value.msg.startswith("Premature end of input")
 
     with pytest.raises(LexException) as excinfo:
         can_compile("(fn [] (for)))")
-    assert excinfo.value.msg == "Ran into a RPAREN where it wasn't expected."
+    assert excinfo.value.msg == "Ran into a ')' where it wasn't expected."
 
     cant_compile("(fn [] (for [x] x))")
 

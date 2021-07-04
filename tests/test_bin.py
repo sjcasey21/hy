@@ -576,7 +576,7 @@ def test_bin_hy_tracebacks():
         r'  File "(?:<string>|string-[0-9a-f]+)", line 1\n'
         r'    \(print "\n'
         r'           \^\n'
-        r'hy.lex.exceptions.PrematureEndOfInput: Partial string literal\n')
+        r'hy.lex.exceptions.PrematureEndOfInput')
     assert re.search(peoi_re, error)
 
     # Modeled after

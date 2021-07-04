@@ -495,7 +495,7 @@ def test_lex_exception_filtering(capsys):
         '  File "<string>", line 2',
         '    (foo',
         '       ^',
-        'hy.lex.exceptions.PrematureEndOfInput: Premature end of input'])
+        'hy.lex.exceptions.PrematureEndOfInput: Premature end of input while attempting to parse one node'])
 
     # Now, for a generic LexException
     with lexe() as execinfo:
@@ -503,7 +503,7 @@ def test_lex_exception_filtering(capsys):
     check_trace_output(capsys, execinfo, [
         '  File "<string>", line 3',
         '    1.foo',
-        '    ^',
+        '        ^',
         'hy.lex.exceptions.LexException: Cannot access attribute on anything other'
             ' than a name (in order to get attributes of expressions,'
             ' use `(. <expression> <attr>)` or `(.<attr> <expression>)`)'])
