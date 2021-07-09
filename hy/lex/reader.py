@@ -254,7 +254,7 @@ class HyParser:
     # Reading AST nodes
     ###
 
-    def try_parse_one_node(self):
+    def _try_parse_one_node(self):
         self.slurp_space()
         c = self.getc()
         start = self._pos
@@ -270,7 +270,7 @@ class HyParser:
     def parse_one_node(self):
         node = None
         while node is None:
-            node = self.try_parse_one_node()
+            node = self._try_parse_one_node()
         return node
 
     def parse_nodes_until(self, closer):
@@ -279,7 +279,7 @@ class HyParser:
             self.slurp_space()
             if self.peek_and_getc(closer):
                 return things
-            node = self.try_parse_one_node()
+            node = self._try_parse_one_node()
             if node is not None:
                 things.append(node)
 
