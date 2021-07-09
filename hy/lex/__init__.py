@@ -21,7 +21,7 @@ __all__ = [
 ]
 
 
-def read_many(source, filename=None):
+def read_many(source, filename=None, reader=None):
     """Parse Hy source as a sequence of forms.
 
     Args:
@@ -31,15 +31,16 @@ def read_many(source, filename=None):
     Returns:
       out : Sequence[hy.models.Expression]
     """
-    parser = HyParser(source, filename)
+    if reader is None:
+        reader = HyParser(source, filename)
     try:
-        return parser.parse()
+        return reader.parse(source)
     except UnexpectedEOF as e:
         raise PrematureEndOfInput(e.msg, None, filename, source, *e.pos) from e
     except hy.errors.HyError:
         raise
     except Exception as e:
-        raise LexException(str(e), None, filename, source, *parser.pos) from e
+        raise LexException(str(e), None, filename, source, *reader.pos) from e
 
 
 def read(source):
@@ -55,7 +56,7 @@ def read(source):
         raise LexException(str(e), None, filename, source, *parser.pos) from e
 
 
-def read_module(source, filename='<string>'):
+def read_module(source, filename='<string>', reader=None):
     """Parse a Hy source file's contents. Treats the input as a complete module.
     Also removes any shebang line at the beginning of the source.
 
@@ -67,7 +68,7 @@ def read_module(source, filename='<string>'):
       out : hy.models.Expression
     """
     _source = re.sub(r'\A#!.*', '', source)
-    res = Expression([Symbol("do")] + read_many(_source + "\n", filename=filename))
+    res = Expression([Symbol("do")] + read_many(_source + "\n", filename=filename, reader=reader))
     res.source = source
     res.filename = filename
     return res

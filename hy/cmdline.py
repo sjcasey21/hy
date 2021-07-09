@@ -18,13 +18,13 @@ import runpy
 import types
 import time
 import linecache
-import hashlib
 import codeop
 import builtins
 
 import hy
 
 from hy.lex import read_module, mangle
+from hy.lex.reader import HyParser
 from contextlib import contextmanager
 from hy.lex.exceptions import PrematureEndOfInput
 from hy.compiler import (HyASTCompiler, hy_eval, hy_compile,
@@ -126,6 +126,7 @@ class HyCompile(codeop.Compile, object):
         self.locals = locals
         self.ast_callback = ast_callback
         self.hy_compiler = hy_compiler
+        self.reader = HyParser("", "<stdin>")
 
         super(HyCompile, self).__init__()
 
@@ -156,21 +157,23 @@ class HyCompile(codeop.Compile, object):
             # We need to return a no-op to signal that no more input is needed.
             return (compile(source, filename, symbol),) * 2
 
-        hash_digest = hashlib.sha1(source.encode("utf-8").strip()).hexdigest()
-        name = '{}-{}'.format(filename.strip('<>'), hash_digest)
-
         try:
-            hy_ast = read_module(source, filename=name)
+            hy_ast = read_module(source, filename=filename, reader=self.reader)
+        except PrematureEndOfInput:
+            raise
         except Exception:
             # Capture a traceback without the compiler/REPL frames.
             sys.last_type, sys.last_value, sys.last_traceback = sys.exc_info()
             self._update_exc_info()
-            raise
+            exec_code = super(HyCompile, self).__call__(
+                'raise _hy_last_value.with_traceback(_hy_last_traceback)',
+                filename, symbol)
+            eval_code = super(HyCompile, self).__call__('None', filename, 'eval')
+            return exec_code, eval_code
 
-        self._cache(source, name)
+        self._cache(source, filename)
 
         try:
-            hy_ast = read_module(source, filename=filename)
             root_ast = ast.Interactive if symbol == 'single' else ast.Module
 
             # Our compiler doesn't correspond to a real, fixed source file, so
@@ -186,8 +189,8 @@ class HyCompile(codeop.Compile, object):
             if self.ast_callback:
                 self.ast_callback(exec_ast, eval_ast)
 
-            exec_code = super(HyCompile, self).__call__(exec_ast, name, symbol)
-            eval_code = super(HyCompile, self).__call__(eval_ast, name, 'eval')
+            exec_code = super(HyCompile, self).__call__(exec_ast, filename, symbol)
+            eval_code = super(HyCompile, self).__call__(eval_ast, filename, 'eval')
 
         except HyLanguageError:
             # Hy will raise exceptions during compile-time that Python would
@@ -199,8 +202,8 @@ class HyCompile(codeop.Compile, object):
             self._update_exc_info()
             exec_code = super(HyCompile, self).__call__(
                 'raise _hy_last_value.with_traceback(_hy_last_traceback)',
-                name, symbol)
-            eval_code = super(HyCompile, self).__call__('None', name, 'eval')
+                filename, symbol)
+            eval_code = super(HyCompile, self).__call__('None', filename, 'eval')
 
         except SyntaxError:
             # Capture and save the error before we get to the superclass handler

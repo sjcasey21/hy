@@ -36,15 +36,6 @@ class UnexpectedEOF(Exception):
         self.msg = msg
 
 
-class StringStateMachine:
-    def __init__(self, prefix, is_fstring=False):
-        self.handling_fcomponent = False
-        self.is_fstring = is_fstring
-        self.buffer = []
-        self.prefix = prefix
-        self.components = []
-
-
 DEFAULT_TABLE = {}
 
 
@@ -292,7 +283,14 @@ class HyParser:
             if node is not None:
                 things.append(node)
 
-    def parse(self):
+    def parse(self, source=None):
+        if source is not None:
+            self._source = source
+            self._stream = StringIO(self._source)
+            self._peek_chars = deque()
+            self._saved_chars = []
+            self._pos = (1, 0)
+            self._eof_tracker = self._pos
         return self.parse_nodes_until('')
 
     ###
