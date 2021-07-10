@@ -9,10 +9,11 @@ import pytest
 from math import isnan
 from hy.models import (Expression, Integer, Float, Complex, Symbol,
                        String, Dict, List, Set, Keyword)
-from hy.lex import read_many
+from hy.lex import Module, read_many as _read_many
 from hy.lex.exceptions import LexException, PrematureEndOfInput
 from hy.errors import hy_exc_handler
 
+def read_many(s): return list(Module(_read_many(s), s, None))
 def peoi(): return pytest.raises(PrematureEndOfInput)
 def lexe(): return pytest.raises(LexException)
 
@@ -36,7 +37,7 @@ def check_trace_output(capsys, execinfo, expected):
    # Make sure the filtered frames aren't the same as the unfiltered ones.
    assert output != captured_wo_filtering.split('\n')
    # Remove the origin frame lines.
-   assert output[3:] == expected
+   assert output[5:] == expected
 
 
 def test_lex_exception():
