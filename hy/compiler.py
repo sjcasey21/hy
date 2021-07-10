@@ -811,9 +811,11 @@ def hy_compile(tree, module, root=ast.Module, get_expr=False,
                 result += last.expr_as_stmt()
             last = compiler.compile(node)
             result += last
-        expr = last.force_expr
-        if not get_expr and last is not None:
-            result += last.expr_as_stmt()
+        if last is not None:
+            if get_expr:
+                expr = last.force_expr
+            else:
+                result += last.expr_as_stmt()
     else:
         result = compiler.compile(tree)
         expr = result.force_expr
