@@ -362,7 +362,7 @@ class HyReader:
     def tag_as(root):
         def _tag_as(self, _):
             nc = self.peekc()
-            if nc.isspace() or self.reader_table.get(nc) == self.INVALID:
+            if not nc or nc.isspace() or self.reader_table.get(nc) == self.INVALID:
                 raise ValueError("Could not identify the next token.")
             node = self.parse_one_node()
             return mkexpr(root, node)
@@ -372,7 +372,7 @@ class HyReader:
     @reader_for("~")
     def unquote(self, key):
         nc = self.peekc()
-        if nc.isspace() or self.reader_table.get(nc) == self.INVALID:
+        if not nc or nc.isspace() or self.reader_table.get(nc) == self.INVALID:
             return sym(key)
         if self.peek_and_getc("@"):
             root = "unquote-splice"
