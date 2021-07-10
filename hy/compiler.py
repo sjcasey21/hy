@@ -13,7 +13,7 @@ from hy.models import (Object, Expression, Keyword, Integer, Complex,
     Dict, as_model, is_unpack)
 from hy.model_patterns import (FORM, KEYWORD, unpack)
 from hy.errors import (HyCompileError, HyLanguageError, HySyntaxError)
-from hy.lex import mangle
+from hy.lex import mangle, Module
 from hy.macros import macroexpand
 
 
@@ -791,10 +791,11 @@ def hy_compile(tree, module, root=ast.Module, get_expr=False,
     filename = getattr(tree, 'filename', filename)
     source = getattr(tree, 'source', source)
 
-    tree = as_model(tree)
-    if not isinstance(tree, Object):
-        raise TypeError("`tree` must be a hy.models.Object or capable of "
-                        "being promoted to one")
+    if not isinstance(tree, Module):
+        tree = as_model(tree)
+        if not isinstance(tree, Object):
+            raise TypeError("`tree` must be a hy.models.Object or capable of "
+                            "being promoted to one")
 
     compiler = compiler or HyASTCompiler(module, filename=filename, source=source)
 
@@ -802,11 +803,22 @@ def hy_compile(tree, module, root=ast.Module, get_expr=False,
         # Import hy for compile time, but save the compiled AST.
         stdlib_ast = compiler.compile(mkexpr("eval-and-compile", mkexpr("import", "hy")))
 
-    result = compiler.compile(tree)
-    expr = result.force_expr
+    if isinstance(tree, Module):
+        result = Result()
+        last = None
+        for node in tree:
+            if last is not None:
+                result += last.expr_as_stmt()
+            last = compiler.compile(node)
+            result += last
+        if not get_expr and last is not None:
+            result += last.expr_as_stmt()
+    else:
+        result = compiler.compile(tree)
+        expr = result.force_expr
 
-    if not get_expr:
-        result += result.expr_as_stmt()
+        if not get_expr:
+            result += result.expr_as_stmt()
 
     body = []
 

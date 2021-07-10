@@ -106,13 +106,7 @@ def reader_for(char, args=None):
 
 class HyParser:
     def __init__(self, source, filename):
-        self._filename = filename
-        self._source = source
-        self._stream = StringIO(self._source)
-        self._peek_chars = deque()
-        self._saved_chars = []
-        self._pos = (1, 0)
-        self._eof_tracker = self._pos
+        self._set_source(source, filename)
         self._module = ModuleType('<reader>')
         self._module.__dict__.update({
             "hy": hy,
@@ -122,6 +116,17 @@ class HyParser:
         self.ends_ident = set(NON_IDENT)
         self.parse_default = HyParser.ident_or_prefixed_string
         self.reader_table = DEFAULT_TABLE.copy()
+
+    def _set_source(self, source=None, filename=None):
+        if filename is not None:
+            self._filename = filename
+        if source is not None:
+            self._source = source
+            self._stream = StringIO(self._source)
+            self._peek_chars = deque()
+            self._saved_chars = []
+            self._pos = (1, 0)
+            self._eof_tracker = self._pos
 
     @property
     def pos(self):
@@ -288,14 +293,29 @@ class HyParser:
                 things.append(node)
 
     def parse(self, source=None):
-        if source is not None:
-            self._source = source
-            self._stream = StringIO(self._source)
-            self._peek_chars = deque()
-            self._saved_chars = []
-            self._pos = (1, 0)
-            self._eof_tracker = self._pos
+        self._set_source(source)
         return self.parse_nodes_until('')
+
+    def yield_nodes(self, source=None):
+        rname = mangle("&reader")
+        old_reader = getattr(hy, rname, None)
+        setattr(hy, rname, self)
+
+        self._set_source(source)
+
+        while True:
+            self.slurp_space()
+            if self.peekc() == "":
+                break
+            node = self._try_parse_one_node()
+            if node is not None:
+                yield node
+
+        if old_reader is None:
+            delattr(hy, rname)
+        else:
+            setattr(hy, rname, old_reader)
+        return
 
     ###
     # Reader dispatch logic

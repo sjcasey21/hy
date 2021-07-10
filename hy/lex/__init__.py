@@ -20,6 +20,13 @@ __all__ = [
     "read_file_contents",
 ]
 
+class Module:
+    def __init__(self, base):
+        self._base = base
+    def __getattr__(self, attr):
+        return getattr(self._base, attr)
+    def __iter__(self):
+        return iter(self._base)
 
 def read_many(source, filename=None, reader=None):
     """Parse Hy source as a sequence of forms.
@@ -34,7 +41,7 @@ def read_many(source, filename=None, reader=None):
     if reader is None:
         reader = HyParser(source, filename)
     try:
-        return reader.parse(source)
+        return reader.yield_nodes(source)
     except UnexpectedEOF as e:
         raise PrematureEndOfInput(e.msg, None, filename, source, *e.pos) from e
     except hy.errors.HyError:
@@ -68,7 +75,7 @@ def read_module(source, filename='<string>', reader=None):
       out : hy.models.Expression
     """
     _source = re.sub(r'\A#!.*', '', source)
-    res = Expression([Symbol("do")] + read_many(_source + "\n", filename=filename, reader=reader))
+    res = Module(read_many(_source, filename=filename, reader=reader))
     res.source = source
     res.filename = filename
     return res
