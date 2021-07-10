@@ -283,39 +283,26 @@ class HyParser:
         return node
 
     def parse_nodes_until(self, closer):
-        things = []
         while True:
             self.slurp_space()
             if self.peek_and_getc(closer):
-                return things
-            node = self._try_parse_one_node()
-            if node is not None:
-                things.append(node)
-
-    def parse(self, source=None):
-        self._set_source(source)
-        return self.parse_nodes_until('')
-
-    def yield_nodes(self, source=None):
-        rname = mangle("&reader")
-        old_reader = getattr(hy, rname, None)
-        setattr(hy, rname, self)
-
-        self._set_source(source)
-
-        while True:
-            self.slurp_space()
-            if self.peekc() == "":
                 break
             node = self._try_parse_one_node()
             if node is not None:
                 yield node
 
+    def parse(self, source=None):
+        rname = mangle("&reader")
+        old_reader = getattr(hy, rname, None)
+        setattr(hy, rname, self)
+
+        self._set_source(source)
+        yield from self.parse_nodes_until('')
+
         if old_reader is None:
             delattr(hy, rname)
         else:
             setattr(hy, rname, old_reader)
-        return
 
     ###
     # Reader dispatch logic
@@ -430,7 +417,7 @@ class HyParser:
         that are similar to `eval-and-compile` and `eval-when-compile`,
         but operate at read time and have access to this reader instance
         through the special variable `&reader`."""
-        nodes = self.parse_nodes_until(")")
+        nodes = list(self.parse_nodes_until(")"))
         if nodes and isinstance(nodes[0], Symbol):
             root = str(nodes[0])
             if root in ("eval-and-read", "eval-when-read"):

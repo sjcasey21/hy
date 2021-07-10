@@ -41,7 +41,7 @@ def read_many(source, filename=None, reader=None):
     if reader is None:
         reader = HyParser(source, filename)
     try:
-        return reader.yield_nodes(source)
+        return reader.parse(source)
     except UnexpectedEOF as e:
         raise PrematureEndOfInput(e.msg, None, filename, source, *e.pos) from e
     except hy.errors.HyError:
