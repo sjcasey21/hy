@@ -157,20 +157,6 @@ class HyCompile(codeop.Compile, object):
             # We need to return a no-op to signal that no more input is needed.
             return (compile(source, filename, symbol),) * 2
 
-        try:
-            hy_ast = read_module(source, filename=filename, reader=self.reader)
-        except PrematureEndOfInput:
-            raise
-        except Exception:
-            # Capture a traceback without the compiler/REPL frames.
-            sys.last_type, sys.last_value, sys.last_traceback = sys.exc_info()
-            self._update_exc_info()
-            exec_code = super(HyCompile, self).__call__(
-                'raise _hy_last_value.with_traceback(_hy_last_traceback)',
-                filename, symbol)
-            eval_code = super(HyCompile, self).__call__('None', filename, 'eval')
-            return exec_code, eval_code
-
         self._cache(source, filename)
 
         try:
@@ -180,6 +166,7 @@ class HyCompile(codeop.Compile, object):
             # we need to [re]set these.
             self.hy_compiler.filename = filename
             self.hy_compiler.source = source
+            hy_ast = read_module(source, filename=filename, reader=self.reader)
             exec_ast, eval_ast = hy_compile(hy_ast, self.module, root=root_ast,
                                             get_expr=True,
                                             compiler=self.hy_compiler,
@@ -191,6 +178,9 @@ class HyCompile(codeop.Compile, object):
 
             exec_code = super(HyCompile, self).__call__(exec_ast, filename, symbol)
             eval_code = super(HyCompile, self).__call__(eval_ast, filename, 'eval')
+
+        except PrematureEndOfInput:
+            raise
 
         except HyLanguageError:
             # Hy will raise exceptions during compile-time that Python would
@@ -212,6 +202,16 @@ class HyCompile(codeop.Compile, object):
             sys.last_traceback = None
             self._update_exc_info()
             raise
+
+        except Exception:
+            # Capture a traceback without the compiler/REPL frames.
+            sys.last_type, sys.last_value, sys.last_traceback = sys.exc_info()
+            self._update_exc_info()
+            exec_code = super(HyCompile, self).__call__(
+                'raise _hy_last_value.with_traceback(_hy_last_traceback)',
+                filename, symbol)
+            eval_code = super(HyCompile, self).__call__('None', filename, 'eval')
+            return exec_code, eval_code
 
         return exec_code, eval_code
 

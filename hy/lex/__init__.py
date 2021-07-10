@@ -21,12 +21,22 @@ __all__ = [
 ]
 
 class Module:
-    def __init__(self, base):
+    def __init__(self, base, source, filename, reader):
         self._base = base
+        self.source = source
+        self.filename = filename
+        self._reader = reader
     def __getattr__(self, attr):
         return getattr(self._base, attr)
     def __iter__(self):
-        return iter(self._base)
+        try:
+            yield from self._base
+        except UnexpectedEOF as e:
+            raise PrematureEndOfInput(e.msg, None, self.filename, self.source, *e.pos) from e
+        except hy.errors.HyError:
+            raise
+        except Exception as e:
+            raise LexException(str(e), None, self.filename, self.source, *self._reader.pos) from e
 
 def read_many(source, filename=None, reader=None):
     """Parse Hy source as a sequence of forms.
@@ -75,7 +85,6 @@ def read_module(source, filename='<string>', reader=None):
       out : hy.models.Expression
     """
     _source = re.sub(r'\A#!.*', '', source)
-    res = Module(read_many(_source, filename=filename, reader=reader))
-    res.source = source
-    res.filename = filename
+    res = read_many(_source, filename=filename, reader=reader)
+    res = Module(res, source, filename, reader)
     return res
