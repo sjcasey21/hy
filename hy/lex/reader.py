@@ -296,13 +296,14 @@ class HyReader:
         old_reader = getattr(hy, rname, None)
         setattr(hy, rname, self)
 
-        self._set_source(source)
-        yield from self.parse_nodes_until('')
-
-        if old_reader is None:
-            delattr(hy, rname)
-        else:
-            setattr(hy, rname, old_reader)
+        try:
+            self._set_source(source)
+            yield from self.parse_nodes_until('')
+        finally:
+            if old_reader is None:
+                delattr(hy, rname)
+            else:
+                setattr(hy, rname, old_reader)
 
     ###
     # Reader dispatch logic

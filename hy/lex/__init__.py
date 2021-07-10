@@ -21,11 +21,10 @@ __all__ = [
 ]
 
 class Module:
-    def __init__(self, base, source, filename, reader):
+    def __init__(self, base, source, filename):
         self._base = base
         self.source = source
         self.filename = filename
-        self._reader = reader
     def __getattr__(self, attr):
         return getattr(self._base, attr)
     def __iter__(self):
@@ -36,7 +35,8 @@ class Module:
         except hy.errors.HyError:
             raise
         except Exception as e:
-            raise LexException(str(e), None, self.filename, self.source, *self._reader.pos) from e
+            reader = getattr(hy, mangle("&reader"))
+            raise LexException(str(e), None, self.filename, self.source, *reader.pos) from e
 
 def read_many(source, filename=None, reader=None):
     """Parse Hy source as a sequence of forms.
@@ -86,5 +86,5 @@ def read_module(source, filename='<string>', reader=None):
     """
     _source = re.sub(r'\A#!.*', '', source)
     res = read_many(_source, filename=filename, reader=reader)
-    res = Module(res, source, filename, reader)
+    res = Module(res, source, filename)
     return res
