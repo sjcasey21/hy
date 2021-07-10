@@ -180,6 +180,9 @@ class String(Object, str):
         value.brackets = brackets
         return value
 
+    def __add__(self, other):
+        return self.__class__(super().__add__(other))
+
 _wrappers[str] = String
 
 
