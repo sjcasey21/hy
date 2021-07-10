@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from io import StringIO
 from types import ModuleType
 
+import hy
 from hy.models import (
     Bytes,
     Complex,
@@ -113,7 +114,10 @@ class HyParser:
         self._pos = (1, 0)
         self._eof_tracker = self._pos
         self._module = ModuleType('<reader>')
-        self._module.__dict__[mangle("&reader")] = self
+        self._module.__dict__.update({
+            "hy": hy,
+            mangle("&reader"): self,
+        })
 
         self.ends_ident = set(NON_IDENT)
         self.parse_default = HyParser.ident_or_prefixed_string
