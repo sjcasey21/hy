@@ -173,16 +173,8 @@
 
 (defn test-with-gensym []
   (import ast)
-<<<<<<< HEAD
   (import hy.compiler [hy-compile])
-  (import hy.lex [hy-parse])
-||||||| parent of a1a2c8bf (convert tests to new reader api)
-  (import [hy.compiler [hy-compile]])
-  (import [hy.lex [hy-parse]])
-=======
-  (import [hy.compiler [hy-compile]])
-  (import [hy.lex [read-module]])
->>>>>>> a1a2c8bf (convert tests to new reader api)
+  (import hy.lex [read-module])
   (setv macro1 "(defmacro nif [expr pos zero neg]
       (with-gensyms [a]
         `(do
@@ -205,16 +197,8 @@
 
 (defn test-defmacro/g! []
   (import ast)
-<<<<<<< HEAD
   (import hy.compiler [hy-compile])
-  (import hy.lex [hy-parse])
-||||||| parent of a1a2c8bf (convert tests to new reader api)
-  (import [hy.compiler [hy-compile]])
-  (import [hy.lex [hy-parse]])
-=======
-  (import [hy.compiler [hy-compile]])
-  (import [hy.lex [read-module]])
->>>>>>> a1a2c8bf (convert tests to new reader api)
+  (import hy.lex [read-module])
   (setv macro1 "(defmacro/g! nif [expr pos zero neg]
         `(do
            (setv ~g!res ~expr)
@@ -242,16 +226,8 @@
 (defn test-defmacro! []
   ;; defmacro! must do everything defmacro/g! can
   (import ast)
-<<<<<<< HEAD
   (import hy.compiler [hy-compile])
-  (import hy.lex [hy-parse])
-||||||| parent of a1a2c8bf (convert tests to new reader api)
-  (import [hy.compiler [hy-compile]])
-  (import [hy.lex [hy-parse]])
-=======
-  (import [hy.compiler [hy-compile]])
-  (import [hy.lex [read-module]])
->>>>>>> a1a2c8bf (convert tests to new reader api)
+  (import hy.lex [read-module])
   (setv macro1 "(defmacro! nif [expr pos zero neg]
         `(do
            (setv ~g!res ~expr)
@@ -519,13 +495,7 @@ in expansions."
 
 (defn test-macro-errors []
   (import traceback
-<<<<<<< HEAD
-          hy.importer [hy-parse])
-||||||| parent of a1a2c8bf (convert tests to new reader api)
-          [hy.importer [hy-parse]])
-=======
-          [hy.lex [read-module]])
->>>>>>> a1a2c8bf (convert tests to new reader api)
+          hy.importer [read-module])
 
   (setv test-expr (read-module "(defmacro blah [x] `(print ~@z)) (blah y)"))
 
