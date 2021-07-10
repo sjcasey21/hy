@@ -9,7 +9,7 @@ from hy.models import Expression, Symbol
 
 from .exceptions import LexException, PrematureEndOfInput  # NOQA
 from .mangle import isidentifier, mangle, unmangle
-from .reader import HyParser, UnexpectedEOF
+from .reader import HyReader, UnexpectedEOF
 
 __all__ = [
     "mangle",
@@ -39,7 +39,7 @@ def read_many(source, filename=None, reader=None):
       out : Sequence[hy.models.Expression]
     """
     if reader is None:
-        reader = HyParser(source, filename)
+        reader = HyReader(source, filename)
     try:
         return reader.parse(source)
     except UnexpectedEOF as e:
@@ -52,7 +52,7 @@ def read_many(source, filename=None, reader=None):
 
 def read(source):
     filename = "<string>"
-    parser = HyParser(source, filename)
+    parser = HyReader(source, filename)
     try:
         return parser.parse_one_node()
     except UnexpectedEOF as e:

@@ -24,7 +24,7 @@ import builtins
 import hy
 
 from hy.lex import read_module, mangle
-from hy.lex.reader import HyParser
+from hy.lex.reader import HyReader
 from contextlib import contextmanager
 from hy.lex.exceptions import PrematureEndOfInput
 from hy.compiler import (HyASTCompiler, hy_eval, hy_compile,
@@ -126,7 +126,7 @@ class HyCompile(codeop.Compile, object):
         self.locals = locals
         self.ast_callback = ast_callback
         self.hy_compiler = hy_compiler
-        self.reader = HyParser("", "<stdin>")
+        self.reader = HyReader("", "<stdin>")
 
         super(HyCompile, self).__init__()
 

@@ -104,7 +104,7 @@ def reader_for(char, args=None):
     return wrapper
 
 
-class HyParser:
+class HyReader:
     def __init__(self, source, filename):
         self._set_source(source, filename)
         self._module = ModuleType('<reader>')
@@ -114,7 +114,7 @@ class HyParser:
         })
 
         self.ends_ident = set(NON_IDENT)
-        self.parse_default = HyParser.ident_or_prefixed_string
+        self.parse_default = HyReader.ident_or_prefixed_string
         self.reader_table = DEFAULT_TABLE.copy()
 
     def _set_source(self, source=None, filename=None):
