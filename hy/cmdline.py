@@ -500,10 +500,10 @@ def run_repl(hr=None, **kwargs):
 
 def run_icommand(source, **kwargs):
     if os.path.exists(source):
+        filename = source
         set_path(source)
         with io.open(source, "r", encoding='utf-8') as f:
             source = f.read()
-        filename = source
     else:
         filename = '<string>'
 
