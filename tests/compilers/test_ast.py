@@ -525,7 +525,7 @@ def test_for_compile_error():
     assert excinfo.value.msg.startswith("Premature end of input")
 
     with pytest.raises(LexException) as excinfo:
-        can_compile("(fn [] (for)))")
+        can_compile("(fn [] (for [x y] x)))")
     assert excinfo.value.msg == "Ran into a ')' where it wasn't expected."
 
     cant_compile("(fn [] (for [x] x))")

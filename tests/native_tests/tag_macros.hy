@@ -117,5 +117,5 @@
              (double-foo 1 2 3 :quux 4 :baz 5)))
 
   ;; https://github.com/hylang/hy/issues/1565
-  (with [(pytest.raises hy.errors.HyMacroExpansionError)]  ; and not IndexError
+  (with [(pytest.raises hy.lex.exceptions.LexException)]  ; and not IndexError
     (hy.read "#@()")))
