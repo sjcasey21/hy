@@ -11,6 +11,7 @@ from fractions import Fraction
 import operator
 from itertools import groupby
 from functools import reduce
+from types import GeneratorType
 from colorama import Fore
 
 PRETTY = True
@@ -451,6 +452,7 @@ _wrappers[FComponent] = recwrap(FComponent)
 _wrappers[FString] = recwrap(FString)
 _wrappers[List] = recwrap(List)
 _wrappers[list] = recwrap(List)
+_wrappers[GeneratorType] = recwrap(List)
 _wrappers[tuple] = recwrap(List)
 
 
