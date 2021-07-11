@@ -180,6 +180,8 @@ class HyCompile(codeop.Compile, object):
             eval_code = super(HyCompile, self).__call__(eval_ast, filename, 'eval')
 
         except PrematureEndOfInput:
+            sys.last_type, sys.last_value, sys.last_traceback = sys.exc_info()
+            self._update_exc_info()
             raise
 
         except HyLanguageError:
@@ -463,14 +465,14 @@ def set_path(filename):
 def run_command(source, filename=None):
     __main__ = importlib.import_module('__main__')
     require("hy.cmdline", __main__, assignments="ALL")
-    try:
-        tree = read_module(source, filename=filename)
-    except HyLanguageError:
-        hy_exc_handler(*sys.exc_info())
-        return 1
 
     with filtered_hy_exceptions():
-        hy_eval(tree, __main__.__dict__, __main__, filename=filename, source=source)
+        try:
+            tree = read_module(source, filename=filename)
+            hy_eval(tree, __main__.__dict__, __main__, filename=filename, source=source)
+        except HyLanguageError:
+            hy_exc_handler(*sys.exc_info())
+            return 1
     return 0
 
 
