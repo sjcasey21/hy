@@ -791,12 +791,6 @@ def hy_compile(tree, module, root=ast.Module, get_expr=False,
     filename = getattr(tree, 'filename', filename)
     source = getattr(tree, 'source', source)
 
-    if not isinstance(tree, Module):
-        tree = as_model(tree)
-        if not isinstance(tree, Object):
-            raise TypeError("`tree` must be a hy.models.Object or capable of "
-                            "being promoted to one")
-
     compiler = compiler or HyASTCompiler(module, filename=filename, source=source)
 
     if import_stdlib:
@@ -817,6 +811,10 @@ def hy_compile(tree, module, root=ast.Module, get_expr=False,
             else:
                 result += last.expr_as_stmt()
     else:
+        tree = as_model(tree)
+        if not isinstance(tree, Object):
+            raise TypeError("`tree` must be a hy.models.Object or capable of "
+                            "being promoted to one")
         result = compiler.compile(tree)
         expr = result.force_expr
 
