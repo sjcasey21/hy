@@ -328,6 +328,7 @@ class HyREPL(code.InteractiveConsole, object):
     def showsyntaxerror(self, filename=None):
         if filename is None:
             filename = self.filename
+        self.print_last_value = False
 
         self._error_wrap(super(HyREPL, self).showsyntaxerror,
                          exc_info_override=True,
