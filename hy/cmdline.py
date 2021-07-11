@@ -179,41 +179,23 @@ class HyCompile(codeop.Compile, object):
             exec_code = super(HyCompile, self).__call__(exec_ast, filename, symbol)
             eval_code = super(HyCompile, self).__call__(eval_ast, filename, 'eval')
 
-        except PrematureEndOfInput:
+        except Exception as e:
+            # Capture and save the error before we handle further
             sys.last_type, sys.last_value, sys.last_traceback = sys.exc_info()
             self._update_exc_info()
-            raise
-
-        except HyLanguageError:
-            # Hy will raise exceptions during compile-time that Python would
-            # raise during run-time (e.g. import errors for `require`).  In
-            # order to work gracefully with the Python world, we convert such
-            # Hy errors to code that purposefully reraises those exceptions in
-            # the places where Python code expects them.
-            sys.last_type, sys.last_value, sys.last_traceback = sys.exc_info()
-            self._update_exc_info()
-            exec_code = super(HyCompile, self).__call__(
-                'raise _hy_last_value.with_traceback(_hy_last_traceback)',
-                filename, symbol)
-            eval_code = super(HyCompile, self).__call__('None', filename, 'eval')
-
-        except SyntaxError:
-            # Capture and save the error before we get to the superclass handler
-            sys.last_type, sys.last_value, sys.last_traceback = sys.exc_info()
-            # Per the python REPL, SyntaxErrors should not display a traceback
-            sys.last_traceback = None
-            self._update_exc_info()
-            raise
-
-        except Exception:
-            # Capture a traceback without the compiler/REPL frames.
-            sys.last_type, sys.last_value, sys.last_traceback = sys.exc_info()
-            self._update_exc_info()
-            exec_code = super(HyCompile, self).__call__(
-                'raise _hy_last_value.with_traceback(_hy_last_traceback)',
-                filename, symbol)
-            eval_code = super(HyCompile, self).__call__('None', filename, 'eval')
-            return exec_code, eval_code
+            if isinstance(e, (PrematureEndOfInput, SyntaxError)):
+                raise
+            if isinstance(e, (HyLanguageError, Exception)):
+                # Hy will raise exceptions during compile-time that Python would
+                # raise during run-time (e.g. import errors for `require`).  In
+                # order to work gracefully with the Python world, we convert such
+                # Hy errors to code that purposefully reraises those exceptions in
+                # the places where Python code expects them.
+                # Capture a traceback without the compiler/REPL frames.
+                exec_code = super(HyCompile, self).__call__(
+                    'raise _hy_last_value.with_traceback(_hy_last_traceback)',
+                    filename, symbol)
+                eval_code = super(HyCompile, self).__call__('None', filename, 'eval')
 
         return exec_code, eval_code
 
