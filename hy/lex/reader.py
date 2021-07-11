@@ -25,16 +25,10 @@ from hy.models import (
     Symbol,
 )
 
+from .exceptions import PrematureEndOfInput, LexException
 from .mangle import mangle
 
 NON_IDENT = '()[]{};"\''
-
-
-class UnexpectedEOF(Exception):
-    def __init__(self, pos, msg):
-        super().__init__(self, msg)
-        self.pos = pos
-        self.msg = msg
 
 
 DEFAULT_TABLE = {}
@@ -50,7 +44,7 @@ def mkexpr(root, *args):
     return Expression((root, *args))
 
 
-def symbol_like(ident, from_parser=False):
+def symbol_like(ident, reader=None):
     try:
         return Integer(ident)
     except ValueError:
@@ -73,15 +67,23 @@ def symbol_like(ident, from_parser=False):
     if "." in ident:
         for chunk in ident.split("."):
             if chunk and not isinstance(
-                symbol_like(chunk, from_parser=from_parser), Symbol
+                symbol_like(chunk, reader=reader), Symbol
             ):
-                raise ValueError(
-                    f'Cannot access attribute on anything other'
-                    ' than a name (in order to get attributes of expressions,'
-                    ' use `(. <expression> <attr>)` or `(.<attr> <expression>)`)'
-                )
+                if reader is None:
+                    raise ValueError(
+                        f'Cannot access attribute on anything other'
+                        ' than a name (in order to get attributes of expressions,'
+                        ' use `(. <expression> <attr>)` or `(.<attr> <expression>)`)',
+                    )
+                else:
+                    raise LexException.from_reader(
+                        f'Cannot access attribute on anything other'
+                        ' than a name (in order to get attributes of expressions,'
+                        ' use `(. <expression> <attr>)` or `(.<attr> <expression>)`)',
+                        reader,
+                    )
 
-    if not from_parser:
+    if reader is None:
         if (
             not ident
             or ident[:1] == ":"
@@ -107,6 +109,7 @@ def reader_for(char, args=None):
 class HyReader:
     def __init__(self, source, filename):
         self._set_source(source, filename)
+        self._filename = filename  # in case filename is None
         self._module = ModuleType('<reader>')
         self._module.__dict__.update({
             "hy": hy,
@@ -171,9 +174,7 @@ class HyReader:
             self._peek_chars.appendleft(c)
             yield c
         if not c and not eof_ok:
-            raise UnexpectedEOF(
-                self._eof_tracker, "Premature end of input while peeking"
-            )
+            raise PrematureEndOfInput.from_reader("Premature end of input while peeking", self)
 
     def getc(self):
         """This function does bookkeeping, so it's important
@@ -214,9 +215,8 @@ class HyReader:
             yield nc
             self.getc()
         if not nc and not eof_ok:
-            raise UnexpectedEOF(
-                self._eof_tracker, "Premature end of input while peeking ahead"
-            )
+            raise PrematureEndOfInput.from_reader(
+                "Premature end of input while peeking ahead", self)
 
     def chars(self, eof_ok=False):
         while True:
@@ -225,9 +225,8 @@ class HyReader:
                 break
             yield c
         if not c and not eof_ok:
-            raise UnexpectedEOF(
-                self._eof_tracker, "Premature end of input while streaming chars"
-            )
+            raise PrematureEndOfInput.from_reader(
+                "Premature end of input while streaming chars", self)
 
     ###
     # Reading multiple characters
@@ -264,17 +263,20 @@ class HyReader:
     ###
 
     def _try_parse_one_node(self):
-        self.slurp_space()
-        c = self.getc()
-        start = self._pos
-        if not c:
-            raise UnexpectedEOF(
-                self._eof_tracker,
-                "Premature end of input while attempting to parse one node",
-            )
-        handler = self.reader_table.get(c, self.parse_default)
-        node = handler(self, c)
-        return self.fill_node(node, start)
+        try:
+            self.slurp_space()
+            c = self.getc()
+            start = self._pos
+            if not c:
+                raise PrematureEndOfInput.from_reader(
+                    "Premature end of input while attempting to parse one node", self)
+            handler = self.reader_table.get(c, self.parse_default)
+            node = handler(self, c)
+            return self.fill_node(node, start)
+        except LexException:
+            raise
+        except Exception as e:
+            raise LexException.from_reader(str(e), self)
 
     def parse_one_node(self):
         node = None
@@ -291,13 +293,13 @@ class HyReader:
             if node is not None:
                 yield node
 
-    def parse(self, source=None):
+    def parse(self, source=None, filename=None):
         rname = mangle("&reader")
         old_reader = getattr(hy, rname, None)
         setattr(hy, rname, self)
 
         try:
-            self._set_source(source)
+            self._set_source(source, filename)
             yield from self.parse_nodes_until('')
         finally:
             if old_reader is None:
@@ -316,7 +318,7 @@ class HyReader:
         ident = key + self.read_ident()
         if self.peek_and_getc('"'):
             return self.prefixed_string('"', ident)
-        return symbol_like(ident, from_parser=True)
+        return symbol_like(ident, reader=self)
 
     ###
     # Basic atoms
@@ -331,10 +333,11 @@ class HyReader:
     def keyword(self, _):
         ident = self.read_ident()
         if "." in ident:
-            raise ValueError(
+            raise LexException.from_reader(
                 f'Cannot access attribute on anything other'
                 ' than a name (in order to get attributes of expressions,'
-                ' use `(. <expression> <attr>)` or `(.<attr> <expression>)`)'
+                ' use `(. <expression> <attr>)` or `(.<attr> <expression>)`)',
+                self,
             )
         return Keyword(ident, from_parser=True)
 
@@ -364,7 +367,7 @@ class HyReader:
         def _tag_as(self, _):
             nc = self.peekc()
             if not nc or nc.isspace() or self.reader_table.get(nc) == self.INVALID:
-                raise ValueError("Could not identify the next token.")
+                raise LexException.from_reader("Could not identify the next token.", self)
             node = self.parse_one_node()
             return mkexpr(root, node)
 
@@ -401,7 +404,7 @@ class HyReader:
     @reader_for("]")
     @reader_for("}")
     def INVALID(self, key):
-        raise ValueError(f"Ran into a '{key}' where it wasn't expected.")
+        raise LexException.from_reader(f"Ran into a '{key}' where it wasn't expected.", self)
 
     @reader_for("[", (List, "]"))
     @reader_for("{", (Dict, "}"))
@@ -448,9 +451,8 @@ class HyReader:
     @reader_for("#")
     def dispatch(self, key):
         if not self.peekc():
-            raise UnexpectedEOF(
-                self._eof_tracker, "Premature end of input while attempting dispatch"
-            )
+            raise PrematureEndOfInput.from_reader(
+                "Premature end of input while attempting dispatch", self)
 
         # try dispatching tagged ident
         ident = self.read_ident(just_peeking=True)
@@ -466,7 +468,7 @@ class HyReader:
         # fall back to old tag macro behavior
         tag = key + self.read_ident()
         if tag == key:
-            raise ValueError("empty tag name")
+            raise LexException.from_reader("empty tag name", self)
         return mkexpr(tag, self.parse_one_node())
 
     @reader_for("#_")
@@ -481,7 +483,7 @@ class HyReader:
         while self.peek_and_getc("*"):
             num_stars += 1
         if num_stars > 2:
-            raise ValueError("too many stars")
+            raise LexException.from_reader("too many stars", self)
         if num_stars == 1:
             root = "unpack-iterable"
         else:
@@ -493,7 +495,8 @@ class HyReader:
     def decorate(self, _):
         node = self.parse_one_node()
         if not isinstance(node, Expression):
-            raise ValueError("can only decorate function or class definitions")
+            raise LexException.from_reader(
+                "can only decorate function or class definitions", self)
         if not node:
             import hy.errors
             raise hy.errors.HyMacroExpansionError("empty decoration")
@@ -517,7 +520,8 @@ class HyReader:
             if c == "[":
                 break
             elif c == "]":
-                raise ValueError("Ran into a ']' where it wasn't expected.")
+                raise LexException.from_reader(
+                    "Ran into a ']' where it wasn't expected.", self)
             delim.append(c)
         delim = ''.join(delim)
         is_fstring = delim == "f" or delim.startswith("f-")
@@ -637,7 +641,7 @@ class HyReader:
             if has_debug and conversion is None:
                 conversion = 'r'
             if not self.getc() == "}":
-                raise ValueError("f-string: trailing junk in field")
+                raise LexException.from_reader("f-string: trailing junk in field", self)
         node = FComponent((node, *format_components), conversion)
         values.append(self.fill_node(node, start))
         return values

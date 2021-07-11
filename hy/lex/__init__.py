@@ -9,7 +9,7 @@ from hy.models import Expression, Symbol
 
 from .exceptions import LexException, PrematureEndOfInput  # NOQA
 from .mangle import isidentifier, mangle, unmangle
-from .reader import HyReader, UnexpectedEOF
+from .reader import HyReader
 
 __all__ = [
     "mangle",
@@ -28,15 +28,7 @@ class Module:
     def __getattr__(self, attr):
         return getattr(self._base, attr)
     def __iter__(self):
-        try:
-            yield from self._base
-        except UnexpectedEOF as e:
-            raise PrematureEndOfInput(e.msg, None, self.filename, self.source, *e.pos) from e
-        except hy.errors.HyError:
-            raise
-        except Exception as e:
-            reader = getattr(hy, mangle("&reader"))
-            raise LexException(str(e), None, self.filename, self.source, *reader.pos) from e
+        yield from self._base
 
 def read_many(source, filename=None, reader=None):
     """Parse Hy source as a sequence of forms.
@@ -50,27 +42,13 @@ def read_many(source, filename=None, reader=None):
     """
     if reader is None:
         reader = HyReader(source, filename)
-    try:
-        return reader.parse(source)
-    except UnexpectedEOF as e:
-        raise PrematureEndOfInput(e.msg, None, filename, source, *e.pos) from e
-    except hy.errors.HyError:
-        raise
-    except Exception as e:
-        raise LexException(str(e), None, filename, source, *reader.pos) from e
+    return reader.parse(source, filename)
 
 
 def read(source):
     filename = "<string>"
     parser = HyReader(source, filename)
-    try:
-        return parser.parse_one_node()
-    except UnexpectedEOF as e:
-        raise PrematureEndOfInput(e.msg, None, filename, source, *e.pos) from e
-    except hy.errors.HyError:
-        raise
-    except Exception as e:
-        raise LexException(str(e), None, filename, source, *parser.pos) from e
+    return parser.parse_one_node()
 
 
 def read_module(source, filename='<string>', reader=None):
