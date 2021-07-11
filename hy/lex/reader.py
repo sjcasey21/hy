@@ -406,6 +406,7 @@ class HyReader:
     def INVALID(self, key):
         raise LexException.from_reader(f"Ran into a '{key}' where it wasn't expected.", self)
 
+    @reader_for("(", (Expression, ")"))
     @reader_for("[", (List, "]"))
     @reader_for("{", (Dict, "}"))
     @reader_for("#{", (Set, "}"))
@@ -414,35 +415,6 @@ class HyReader:
             return seq_type(self.parse_nodes_until(closer))
 
         return _sequence
-
-    @reader_for("(")
-    def expression(self, _):
-        """Allow for special roots `eval-and-read` and `eval-when-read`
-        that are similar to `eval-and-compile` and `eval-when-compile`,
-        but operate at read time and have access to this reader instance
-        through the special variable `&reader`."""
-        nodes = list(self.parse_nodes_until(")"))
-        if nodes and isinstance(nodes[0], Symbol):
-            root = str(nodes[0])
-            if root in ("eval-and-read", "eval-when-read"):
-                # need to import here to prevent circular partial import
-                from hy.compiler import hy_eval
-
-                fnode = mkexpr("do", *nodes[1:])
-                hy_eval(
-                    fnode,
-                    self._module.__dict__,
-                    self._module,
-                    filename=self._filename,
-                    source=self._source,
-                    import_stdlib=False,
-                )
-                return (
-                    mkexpr("eval-and-compile", *nodes[1:])
-                    if root == "eval-and-read"
-                    else None
-                )
-        return Expression(nodes)
 
     ###
     # Reader tag-macros
