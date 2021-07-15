@@ -1740,10 +1740,10 @@ cee"} dee" "ey bee\ncee dee"))
 (defn test-decorated-defn/a []
   (defn decorator [func] (fn/a [] (/ (await (func)) 2)))
 
-  #@(decorator
-      (defn/a coro-test []
-        (await (asyncio.sleep 0))
-        42))
+  #@[decorator]
+  (defn/a coro-test []
+    (await (asyncio.sleep 0))
+    42)
   (assert (= (asyncio.run (coro-test)) 21)))
 
 

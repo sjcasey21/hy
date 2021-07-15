@@ -465,14 +465,10 @@ class HyReader:
 
     @reader_for("#@")
     def decorate(self, _):
-        node = self.parse_one_node()
-        if not isinstance(node, Expression):
-            raise LexException.from_reader(
-                "can only decorate function or class definitions", self)
-        if not node:
-            import hy.errors
-            raise hy.errors.HyMacroExpansionError("empty decoration")
-        decorators, defn = node[:-1], node[-1]
+        decorators = self.parse_one_node()
+        defn = self.parse_one_node()
+        if not isinstance(decorators, List):
+            decorators = [decorators]
         return mkexpr("with-decorator", *decorators, defn)
 
     @reader_for("#(")

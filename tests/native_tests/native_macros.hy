@@ -410,7 +410,7 @@ in expansions."
 
   (require-macros))
 
-#@(pytest.mark.xfail
+#@ pytest.mark.xfail
 (defn test-macro-from-module []
   "Macros loaded from an external module, which itself `require`s macros, should
  work without having to `require` the module's macro dependencies (due to
@@ -482,7 +482,7 @@ in expansions."
   ;; There doesn't seem to be a way--via standard import mechanisms--to
   ;; ensure that an imported module used the cached bytecode.  We'll simply have
   ;; to trust that the .pyc loading convention was followed.
-  (test-requires-and-macros)))
+  (test-requires-and-macros))
 
 
 (defn test-recursive-require-star []

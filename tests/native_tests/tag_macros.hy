@@ -93,10 +93,10 @@
          (func #* (map inc args)
                #** (dfor [k v] (.items kwargs) [k (inc v)])))))
 
-  #@(increment-arguments
-     (defn foo [#* args #** kwargs]
-       "Bar."
-       (, args kwargs)))
+  #@ increment-arguments
+  (defn foo [#* args #** kwargs]
+    "Bar."
+    (, args kwargs))
 
   ;; The decorator did what it was supposed to
   (assert (= (, (, 2 3 4) {"quux" 5 "baz" 6})
@@ -107,11 +107,11 @@
   (assert (= "Bar." (. foo __doc__)))
 
   ;; We can use the #@ tag macro to apply more than one decorator
-  #@(increment-arguments
-     increment-arguments
+  #@[increment-arguments
+     increment-arguments]
      (defn double-foo [#* args #** kwargs]
        "Bar."
-       (, args kwargs)))
+       (, args kwargs))
 
   (assert (= (, (, 3 4 5) {"quux" 6 "baz" 7})
              (double-foo 1 2 3 :quux 4 :baz 5)))
