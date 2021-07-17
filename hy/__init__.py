@@ -20,6 +20,7 @@ from fractions import Fraction as _Fraction  # For fraction literals
 
 _jit_imports = dict(
     read = "hy.lex",
+    read_many = "hy.lex",
     read_module = "hy.lex",
     mangle = "hy.lex",
     unmangle = "hy.lex",

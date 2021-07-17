@@ -16,8 +16,8 @@ __all__ = [
     "unmangle",
     "isidentifier",
     "read",
-    "read_str",
-    "read_file_contents",
+    "read_many",
+    "read_module",
 ]
 
 class Module:
@@ -36,6 +36,7 @@ def read_many(source, filename=None, reader=None):
     Args:
       source (string): Source code to parse.
       filename (string, optional): File name corresponding to source.  Defaults to None.
+      reader (HyReader, optional): Reader to use, if a new reader should not be created.
 
     Returns:
       out : Sequence[hy.models.Expression]
@@ -58,6 +59,7 @@ def read_module(source, filename='<string>', reader=None):
     Args:
       source (string): Source code to parse.
       filename (string, optional): File name corresponding to source.  Defaults to "<string>".
+      reader (HyReader, optional): Reader to use, if a new reader should not be created.
 
     Returns:
       out : hy.models.Expression
