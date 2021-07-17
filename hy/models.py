@@ -3,7 +3,6 @@
 # license. See the LICENSE.
 
 from contextlib import contextmanager
-import re
 from math import isnan, isinf
 from hy import _initialize_env_var
 from hy.errors import HyWrapperError
