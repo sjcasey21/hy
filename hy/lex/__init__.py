@@ -42,14 +42,17 @@ def read_many(source, filename=None, reader=None):
       out : Sequence[hy.models.Expression]
     """
     if reader is None:
-        reader = HyReader(source, filename)
+        reader = HyReader()
     return reader.parse(source, filename)
 
 
 def read(source):
     filename = "<string>"
-    parser = HyReader(source, filename)
-    return parser.parse_one_node()
+    parser = HyReader()
+    try:
+        return next(parser.parse(source, filename))
+    except StopIteration:
+        return None
 
 
 def read_module(source, filename='<string>', reader=None):

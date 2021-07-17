@@ -126,7 +126,7 @@ class HyCompile(codeop.Compile, object):
         self.locals = locals
         self.ast_callback = ast_callback
         self.hy_compiler = hy_compiler
-        self.reader = HyReader(None, None)
+        self.reader = HyReader()
 
         super(HyCompile, self).__init__()
 
