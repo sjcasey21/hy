@@ -7,9 +7,11 @@ from collections import deque
 from contextlib import contextmanager
 from io import StringIO
 from types import ModuleType
+from typing import Optional
 
 import hy
 from hy.models import (
+    Object,
     Bytes,
     Complex,
     Dict,
@@ -45,22 +47,17 @@ def mkexpr(root, *args):
     return Expression((root, *args))
 
 
-def symbol_like(ident, reader=None):
+def symbol_like(ident: str, reader: Optional['HyReader'] = None) -> Object:
     """Generate a Hy AST node from an identifier-like string.
 
     Also verifies the syntax of dot notation and validity of symbol names.
 
-    Parameters
-    ----------
-    ident : str
-        Text to convert.
+    Args:
+       ident: Text to convert.
+       reader: The reader to use, if any; used for generating position data for errors.
 
-    reader : HyReader, optional
-        The reader to use, if any; used for generating position data for errors.
-
-    Returns
-    -------
-    out : a hy.models.Object subtype corresponding to the parsed text.
+    Returns:
+       out: a hy.models.Object subtype corresponding to the parsed text.
     """
     try:
         return Integer(ident)
@@ -341,16 +338,14 @@ class HyReader:
             if node is not None:
                 yield node
 
-    def parse(self, source, filename=None):
+    def parse(self, source: str, filename: Optional[str] = None):
         """Generator that reads the entire source, producing nodes.
 
-        Parameters
-        ----------
-        source: str
-            Hy source to be parsed.
-        filename: str, optional
-            Filename to use for error messages.
-            If `None` then previously set filename is used."""
+        Args:
+           source: Hy source to be parsed.
+           filename: Filename to use for error messages.
+               If `None` then previously set filename is used.
+        """
         rname = mangle("&reader")
         old_reader = getattr(hy, rname, None)
         setattr(hy, rname, self)
