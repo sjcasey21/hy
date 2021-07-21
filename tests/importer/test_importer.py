@@ -1,55 +1,56 @@
-import os
-import sys
 import ast
-import tempfile
-import runpy
 import importlib
-
+import os
+import runpy
+import sys
+import tempfile
 from fractions import Fraction
 from importlib import reload
 
 import pytest
 
 import hy
-from hy.lex import hy_parse
+from hy.compiler import hy_compile, hy_eval
 from hy.errors import HyLanguageError
-from hy.lex.exceptions import PrematureEndOfInput
-from hy.compiler import hy_eval, hy_compile
 from hy.importer import HyLoader
+from hy.lex import hy_parse
+from hy.lex.exceptions import PrematureEndOfInput
 
 
 def test_basics():
     "Make sure the basics of the importer work"
 
-    assert os.path.isfile('tests/resources/__init__.py')
-    resources_mod = importlib.import_module('tests.resources')
-    assert hasattr(resources_mod, 'kwtest')
+    assert os.path.isfile("tests/resources/__init__.py")
+    resources_mod = importlib.import_module("tests.resources")
+    assert hasattr(resources_mod, "kwtest")
 
-    assert os.path.isfile('tests/resources/bin/__init__.hy')
-    bin_mod = importlib.import_module('tests.resources.bin')
-    assert hasattr(bin_mod, '_null_fn_for_import_test')
+    assert os.path.isfile("tests/resources/bin/__init__.hy")
+    bin_mod = importlib.import_module("tests.resources.bin")
+    assert hasattr(bin_mod, "_null_fn_for_import_test")
 
 
 def test_runpy():
     # `runpy` won't update cached bytecode. It's not clear if that's
     # intentional.
 
-    basic_ns = runpy.run_path('tests/resources/importer/basic.hy')
-    assert 'square' in basic_ns
+    basic_ns = runpy.run_path("tests/resources/importer/basic.hy")
+    assert "square" in basic_ns
 
-    main_ns = runpy.run_path('tests/resources/bin')
-    assert main_ns['visited_main'] == 1
+    main_ns = runpy.run_path("tests/resources/bin")
+    assert main_ns["visited_main"] == 1
     del main_ns
 
-    main_ns = runpy.run_module('tests.resources.bin')
-    assert main_ns['visited_main'] == 1
+    main_ns = runpy.run_module("tests.resources.bin")
+    assert main_ns["visited_main"] == 1
 
     with pytest.raises(IOError):
-        runpy.run_path('tests/resources/foobarbaz.py')
+        runpy.run_path("tests/resources/foobarbaz.py")
 
 
 def test_stringer():
-    _ast = hy_compile(hy_parse("(defn square [x] (* x x))"), __name__, import_stdlib=False)
+    _ast = hy_compile(
+        hy_parse("(defn square [x] (* x x))"), __name__, import_stdlib=False
+    )
 
     assert type(_ast.body[0]) == ast.FunctionDef
 
@@ -70,24 +71,23 @@ def test_import_error_reporting():
     "Make sure that (import) reports errors correctly."
 
     with pytest.raises(HyLanguageError):
-        hy_compile(hy_parse("(import \"sys\")"), __name__)
+        hy_compile(hy_parse('(import "sys")'), __name__)
 
 
 def test_import_error_cleanup():
     "Failed initial imports should not leave dead modules in `sys.modules`."
 
     with pytest.raises(hy.errors.HyMacroExpansionError):
-        importlib.import_module('tests.resources.fails')
+        importlib.import_module("tests.resources.fails")
 
-    assert 'tests.resources.fails' not in sys.modules
+    assert "tests.resources.fails" not in sys.modules
 
 
-@pytest.mark.skipif(sys.dont_write_bytecode,
-                    reason="Bytecode generation is suppressed")
+@pytest.mark.skipif(sys.dont_write_bytecode, reason="Bytecode generation is suppressed")
 def test_import_autocompiles():
     "Test that (import) byte-compiles the module."
 
-    with tempfile.NamedTemporaryFile(suffix='.hy', delete=True) as f:
+    with tempfile.NamedTemporaryFile(suffix=".hy", delete=True) as f:
         f.write(b'(defn pyctest [s] (+ "X" s "Y"))')
         f.flush()
 
@@ -98,11 +98,11 @@ def test_import_autocompiles():
         except (IOError, OSError):
             pass
 
-        spec = importlib.util.spec_from_file_location('mymodule', f.name)
+        spec = importlib.util.spec_from_file_location("mymodule", f.name)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
 
-        assert hasattr(module, 'pyctest')
+        assert hasattr(module, "pyctest")
         assert os.path.exists(pyc_path)
 
         os.remove(pyc_path)
@@ -110,19 +110,20 @@ def test_import_autocompiles():
 
 def test_eval():
     def eval_str(s):
-        return hy_eval(hy.read_str(s), filename='<string>', source=s)
+        return hy_eval(hy.read_str(s), filename="<string>", source=s)
 
-    assert eval_str('[1 2 3]') == [1, 2, 3]
-    assert eval_str('{"dog" "bark" "cat" "meow"}') == {
-        'dog': 'bark', 'cat': 'meow'}
-    assert eval_str('(, 1 2 3)') == (1, 2, 3)
-    assert eval_str('#{3 1 2}') == {1, 2, 3}
-    assert eval_str('1/2') == Fraction(1, 2)
-    assert eval_str('(.strip " fooooo   ")') == 'fooooo'
-    assert eval_str(
-        '(if True "this is if true" "this is if false")') == "this is if true"
-    assert eval_str('(lfor num (range 100) :if (= (% num 2) 1) (pow num 2))') == [
-        pow(num, 2) for num in range(100) if num % 2 == 1]
+    assert eval_str("[1 2 3]") == [1, 2, 3]
+    assert eval_str('{"dog" "bark" "cat" "meow"}') == {"dog": "bark", "cat": "meow"}
+    assert eval_str("(, 1 2 3)") == (1, 2, 3)
+    assert eval_str("#{3 1 2}") == {1, 2, 3}
+    assert eval_str("1/2") == Fraction(1, 2)
+    assert eval_str('(.strip " fooooo   ")') == "fooooo"
+    assert (
+        eval_str('(if True "this is if true" "this is if false")') == "this is if true"
+    )
+    assert eval_str("(lfor num (range 100) :if (= (% num 2) 1) (pow num 2))") == [
+        pow(num, 2) for num in range(100) if num % 2 == 1
+    ]
 
 
 def test_reload():
@@ -140,7 +141,7 @@ def test_reload():
         if os.path.isfile(bytecode):
             os.unlink(bytecode)
 
-    TESTFN = 'testfn'
+    TESTFN = "testfn"
     source = TESTFN + os.extsep + "hy"
     with open(source, "w") as f:
         f.write("(setv a 1)")
@@ -236,19 +237,20 @@ def test_reload_reexecute(capsys):
 
     https://github.com/hylang/hy/issues/712"""
     import tests.resources.hello_world
-    assert capsys.readouterr().out == 'hello world\n'
-    assert capsys.readouterr().out == ''
+
+    assert capsys.readouterr().out == "hello world\n"
+    assert capsys.readouterr().out == ""
     reload(tests.resources.hello_world)
-    assert capsys.readouterr().out == 'hello world\n'
+    assert capsys.readouterr().out == "hello world\n"
 
 
 def test_circular():
     """Test circular imports by creating a temporary file/module that calls a
     function that imports itself."""
-    sys.path.insert(0, os.path.abspath('tests/resources/importer'))
+    sys.path.insert(0, os.path.abspath("tests/resources/importer"))
     try:
-        mod = runpy.run_module('circular')
-        assert mod['f']() == 1
+        mod = runpy.run_module("circular")
+        assert mod["f"]() == 1
     finally:
         sys.path.pop(0)
 
@@ -257,30 +259,31 @@ def test_shadowed_basename():
     """Make sure Hy loads `.hy` files instead of their `.py` counterparts (.e.g
     `__init__.py` and `__init__.hy`).
     """
-    sys.path.insert(0, os.path.realpath('tests/resources/importer'))
+    sys.path.insert(0, os.path.realpath("tests/resources/importer"))
     try:
-        assert os.path.isfile('tests/resources/importer/foo/__init__.hy')
-        assert os.path.isfile('tests/resources/importer/foo/__init__.py')
-        assert os.path.isfile('tests/resources/importer/foo/some_mod.hy')
-        assert os.path.isfile('tests/resources/importer/foo/some_mod.py')
+        assert os.path.isfile("tests/resources/importer/foo/__init__.hy")
+        assert os.path.isfile("tests/resources/importer/foo/__init__.py")
+        assert os.path.isfile("tests/resources/importer/foo/some_mod.hy")
+        assert os.path.isfile("tests/resources/importer/foo/some_mod.py")
 
-        foo = importlib.import_module('foo')
-        assert foo.__file__.endswith('foo/__init__.hy')
-        assert foo.ext == 'hy'
-        some_mod = importlib.import_module('foo.some_mod')
-        assert some_mod.__file__.endswith('foo/some_mod.hy')
-        assert some_mod.ext == 'hy'
+        foo = importlib.import_module("foo")
+        assert foo.__file__.endswith("foo/__init__.hy")
+        assert foo.ext == "hy"
+        some_mod = importlib.import_module("foo.some_mod")
+        assert some_mod.__file__.endswith("foo/some_mod.hy")
+        assert some_mod.ext == "hy"
     finally:
         sys.path.pop(0)
 
 
 def test_docstring():
     """Make sure a module's docstring is loaded."""
-    sys.path.insert(0, os.path.realpath('tests/resources/importer'))
+    sys.path.insert(0, os.path.realpath("tests/resources/importer"))
     try:
-        mod = importlib.import_module('docstring')
-        expected_doc = ("This module has a docstring.\n\n"
-                        "It covers multiple lines, too!\n")
+        mod = importlib.import_module("docstring")
+        expected_doc = (
+            "This module has a docstring.\n\n" "It covers multiple lines, too!\n"
+        )
         assert mod.__doc__ == expected_doc
         assert mod.a == 1
     finally:

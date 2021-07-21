@@ -1,17 +1,23 @@
-import math, itertools, asyncio
-from hy import mangle
+import asyncio
+import itertools
+import math
+
 import hy.importer
+from hy import mangle
 
 
 def test_direct_import():
     import tests.resources.pydemo
+
     assert_stuff(tests.resources.pydemo)
 
 
 def test_hy2py_import(tmpdir):
     import subprocess
+
     python_code = subprocess.check_output(
-        ["hy2py", "tests/resources/pydemo.hy"]).decode("UTF-8")
+        ["hy2py", "tests/resources/pydemo.hy"]
+    ).decode("UTF-8")
     path = tmpdir.join("pydemo.py")
     path.write(python_code)
     assert_stuff(hy.importer._import_from_path("pydemo", path))
@@ -20,11 +26,14 @@ def test_hy2py_import(tmpdir):
 def assert_stuff(m):
 
     # This makes sure that automatically imported builtins go after docstrings.
-    assert m.__doc__ == u'This is a module docstring.'
+    assert m.__doc__ == u"This is a module docstring."
 
     assert m.mystring == "foofoofoo"
 
-    assert m.long_string == u"This is a very long string literal, which would surely exceed any limitations on how long a line or a string literal can be. The string literal alone exceeds 256 characters. It also has a character outside the Basic Multilingual Plane: 😂. Here's a double quote: \". Here are some escaped newlines:\n\n\nHere is a literal newline:\nCall me Ishmael. Some years ago—never mind how long precisely—having little or no money in my purse, and nothing particular to interest me on shore, I thought I would sail about a little and see the watery part of the world. It is a way I have of driving off the spleen and regulating the circulation. Whenever I find myself growing grim about the mouth; whenever it is a damp, drizzly November in my soul; whenever I find myself involuntarily pausing before coffin warehouses, and bringing up the rear of every funeral I meet; and especially whenever my hypos get such an upper hand of me, that it requires a strong moral principle to prevent me from deliberately stepping into the street, and methodically knocking people’s hats off—then, I account it high time to get to sea as soon as I can. This is my substitute for pistol and ball. With a philosophical flourish Cato throws himself upon his sword; I quietly take to the ship. There is nothing surprising in this. If they but knew it, almost all men in their degree, some time or other, cherish very nearly the same feelings towards the ocean with me."
+    assert (
+        m.long_string
+        == u"This is a very long string literal, which would surely exceed any limitations on how long a line or a string literal can be. The string literal alone exceeds 256 characters. It also has a character outside the Basic Multilingual Plane: 😂. Here's a double quote: \". Here are some escaped newlines:\n\n\nHere is a literal newline:\nCall me Ishmael. Some years ago—never mind how long precisely—having little or no money in my purse, and nothing particular to interest me on shore, I thought I would sail about a little and see the watery part of the world. It is a way I have of driving off the spleen and regulating the circulation. Whenever I find myself growing grim about the mouth; whenever it is a damp, drizzly November in my soul; whenever I find myself involuntarily pausing before coffin warehouses, and bringing up the rear of every funeral I meet; and especially whenever my hypos get such an upper hand of me, that it requires a strong moral principle to prevent me from deliberately stepping into the street, and methodically knocking people’s hats off—then, I account it high time to get to sea as soon as I can. This is my substitute for pistol and ball. With a philosophical flourish Cato throws himself upon his sword; I quietly take to the ship. There is nothing surprising in this. If they but knew it, almost all men in their degree, some time or other, cherish very nearly the same feelings towards the ocean with me."
+    )
 
     assert getattr(m, mangle(u"identifier-that-has☝️💯☝️-to-be-mangled")) == "ponies"
 
@@ -59,7 +68,7 @@ def assert_stuff(m):
     assert m.mylistcomp == [1, 3, 5, 7, 9]
     assert m.mysetcomp == {0, 2, 4}
     assert m.mydictcomp == dict(a="A", b="B", d="D", e="E")
-    assert type(m.mygenexpr) is type( (x for x in [1, 2, 3]) )
+    assert type(m.mygenexpr) is type((x for x in [1, 2, 3]))
     assert list(itertools.islice(m.mygenexpr, 5)) == [1, 3, 1, 3, 1]
 
     assert m.attr_ref is str.upper
@@ -85,6 +94,7 @@ def assert_stuff(m):
     assert m.sqrt is math.sqrt
     assert m.sine is math.sin
     import datetime
+
     assert m.timedelta is datetime.timedelta
 
     assert m.if_block == "cd"
@@ -98,17 +108,17 @@ def assert_stuff(m):
 
     assert type(m.fun) is type(lambda x: x)
     assert m.fun.__doc__ == "function docstring"
-    assert m.funcall1 == [
-        1, 2, 3, 4, ("a", "b", "c"), [("k1", "v1"), ("k2", "v2")]]
-    assert m.funcall2 == [
-        7, 8, 9, 10, (11,), [("x1", "y1"), ("x2", "y2")]]
+    assert m.funcall1 == [1, 2, 3, 4, ("a", "b", "c"), [("k1", "v1"), ("k2", "v2")]]
+    assert m.funcall2 == [7, 8, 9, 10, (11,), [("x1", "y1"), ("x2", "y2")]]
 
     assert m.myret == 1
     assert m.myyield == ["a", "b", "c"]
     assert m.mydecorated.newattr == "hello"
     assert m.myglobal == 103
 
-    class C: pass
+    class C:
+        pass
+
     assert type(m.C1) is type(C)
 
     assert m.C2.__doc__ == "class docstring"

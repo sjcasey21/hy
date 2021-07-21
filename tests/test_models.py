@@ -1,9 +1,23 @@
 import copy
+
 import pytest
+
 import hy
 from hy.models import (
-    as_model, replace_hy_obj, Symbol, Keyword, String, Integer,
-    List, Dict, Set, Expression, Complex, Float, pretty)
+    Complex,
+    Dict,
+    Expression,
+    Float,
+    Integer,
+    Keyword,
+    List,
+    Set,
+    String,
+    Symbol,
+    as_model,
+    pretty,
+    replace_hy_obj,
+)
 
 hy.models.COLORED = False
 
@@ -13,21 +27,24 @@ def test_symbol_or_keyword():
         assert str(Symbol(x)) == x
         assert Keyword(x).name == x
     for x in ("", ":foo", "5"):
-        with pytest.raises(ValueError): Symbol(x)
+        with pytest.raises(ValueError):
+            Symbol(x)
         assert Keyword(x).name == x
     for x in ("foo bar", "fib()"):
-        with pytest.raises(ValueError): Symbol(x)
-        with pytest.raises(ValueError): Keyword(x)
+        with pytest.raises(ValueError):
+            Symbol(x)
+        with pytest.raises(ValueError):
+            Keyword(x)
 
 
 def test_wrap_int():
-    """ Test conversion of integers."""
+    """Test conversion of integers."""
     wrapped = as_model(0)
     assert type(wrapped) == Integer
 
 
 def test_wrap_tuple():
-    """ Test conversion of tuples."""
+    """Test conversion of tuples."""
     wrapped = as_model((Integer(0),))
     assert type(wrapped) == List
     assert type(wrapped[0]) == Integer
@@ -35,7 +52,7 @@ def test_wrap_tuple():
 
 
 def test_wrap_nested_expr():
-    """ Test conversion of Expressions with embedded non-HyObjects."""
+    """Test conversion of Expressions with embedded non-HyObjects."""
     wrapped = as_model(Expression([0]))
     assert type(wrapped) == Expression
     assert type(wrapped[0]) == Integer
@@ -43,7 +60,7 @@ def test_wrap_nested_expr():
 
 
 def test_replace_int():
-    """ Test replacing integers."""
+    """Test replacing integers."""
     replaced = replace_hy_obj(0, Integer(13))
     assert replaced == Integer(0)
 
@@ -55,8 +72,8 @@ def test_replace_string_type():
 
 
 def test_replace_tuple():
-    """ Test replacing tuples."""
-    replaced = replace_hy_obj((0, ), Integer(13))
+    """Test replacing tuples."""
+    replaced = replace_hy_obj((0,), Integer(13))
     assert type(replaced) == List
     assert type(replaced[0]) == Integer
     assert replaced == List([Integer(0)])
@@ -107,21 +124,22 @@ def test_set():
 
 def test_number_model_copy():
     i = Integer(42)
-    assert (i == copy.copy(i))
-    assert (i == copy.deepcopy(i))
+    assert i == copy.copy(i)
+    assert i == copy.deepcopy(i)
 
-    f = Float(42.)
-    assert (f == copy.copy(f))
-    assert (f == copy.deepcopy(f))
+    f = Float(42.0)
+    assert f == copy.copy(f)
+    assert f == copy.deepcopy(f)
 
     c = Complex(42j)
-    assert (c == copy.copy(c))
-    assert (c == copy.deepcopy(c))
+    assert c == copy.copy(c)
+    assert c == copy.deepcopy(c)
 
 
 PRETTY_STRINGS = {
-    k % ('[1.0] {1.0} (1.0) #{1.0}',):
-        v.format("""
+    k
+    % ("[1.0] {1.0} (1.0) #{1.0}",): v.format(
+        """
   hy.models.List([
     hy.models.Float(1.0)]),
   hy.models.Dict([
@@ -130,13 +148,14 @@ PRETTY_STRINGS = {
   hy.models.Expression([
     hy.models.Float(1.0)]),
   hy.models.Set([
-    hy.models.Float(1.0)])""")
-    for k, v in {'[%s]': 'hy.models.List([{}])',
-                 '#{%s}': 'hy.models.Set([{}])'}.items()}
+    hy.models.Float(1.0)])"""
+    )
+    for k, v in {"[%s]": "hy.models.List([{}])", "#{%s}": "hy.models.Set([{}])"}.items()
+}
 
-PRETTY_STRINGS.update({
-    '{[1.0] {1.0} (1.0) #{1.0}}':
-    """hy.models.Dict([
+PRETTY_STRINGS.update(
+    {
+        "{[1.0] {1.0} (1.0) #{1.0}}": """hy.models.Dict([
   hy.models.List([
     hy.models.Float(1.0)]),
   hy.models.Dict([
@@ -147,19 +166,15 @@ PRETTY_STRINGS.update({
     hy.models.Float(1.0)]),
   hy.models.Set([
     hy.models.Float(1.0)])
-  ])"""
-    ,
-    '[1.0 1j [] {} () #{}]':
-        """hy.models.List([
+  ])""",
+        "[1.0 1j [] {} () #{}]": """hy.models.List([
   hy.models.Float(1.0),
   hy.models.Complex(1j),
   hy.models.List(),
   hy.models.Dict(),
   hy.models.Expression(),
-  hy.models.Set()])"""
-    ,
-    '{{1j 2j} {1j 2j [][1j]} {[1j][] 1j 2j} {[1j][1j]}}':
-        """hy.models.Dict([
+  hy.models.Set()])""",
+        "{{1j 2j} {1j 2j [][1j]} {[1j][] 1j 2j} {[1j][1j]}}": """hy.models.Dict([
   hy.models.Dict([
     hy.models.Complex(1j), hy.models.Complex(2j)]),
   hy.models.Dict([
@@ -181,7 +196,9 @@ PRETTY_STRINGS.update({
     hy.models.List([
       hy.models.Complex(1j)])
     ])
-  ])"""})
+  ])""",
+    }
+)
 
 
 def test_compound_model_repr():
