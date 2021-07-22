@@ -31,13 +31,14 @@ from .exceptions import PrematureEndOfInput, LexException
 from .mangle import mangle
 
 
-NON_IDENT = '()[]{};"\''
+NON_IDENT = "()[]{};\"'"
 
 DEFAULT_TABLE = {}
 
 
 def sym(name):
     return Symbol(name, from_parser=True)
+
 
 # Note that this is subtly different from
 # the `mkexpr` in hy/compiler.py !
@@ -47,7 +48,7 @@ def mkexpr(root, *args):
     return Expression((root, *args))
 
 
-def symbol_like(ident: str, reader: Optional['HyReader'] = None) -> Object:
+def symbol_like(ident: str, reader: Optional["HyReader"] = None) -> Object:
     """Generate a Hy AST node from an identifier-like string.
 
     Also verifies the syntax of dot notation and validity of symbol names.
@@ -72,7 +73,7 @@ def symbol_like(ident: str, reader: Optional['HyReader'] = None) -> Object:
         return Float(ident)
     except ValueError:
         pass
-    if ident not in ('j', 'J'):
+    if ident not in ("j", "J"):
         try:
             return Complex(ident)
         except ValueError:
@@ -80,20 +81,18 @@ def symbol_like(ident: str, reader: Optional['HyReader'] = None) -> Object:
 
     if "." in ident:
         for chunk in ident.split("."):
-            if chunk and not isinstance(
-                symbol_like(chunk, reader=reader), Symbol
-            ):
+            if chunk and not isinstance(symbol_like(chunk, reader=reader), Symbol):
                 if reader is None:
                     raise ValueError(
-                        f'Cannot access attribute on anything other'
-                        ' than a name (in order to get attributes of expressions,'
-                        ' use `(. <expression> <attr>)` or `(.<attr> <expression>)`)',
+                        f"Cannot access attribute on anything other"
+                        " than a name (in order to get attributes of expressions,"
+                        " use `(. <expression> <attr>)` or `(.<attr> <expression>)`)",
                     )
                 else:
                     raise LexException.from_reader(
-                        f'Cannot access attribute on anything other'
-                        ' than a name (in order to get attributes of expressions,'
-                        ' use `(. <expression> <attr>)` or `(.<attr> <expression>)`)',
+                        f"Cannot access attribute on anything other"
+                        " than a name (in order to get attributes of expressions,"
+                        " use `(. <expression> <attr>)` or `(.<attr> <expression>)`)",
                         reader,
                     )
 
@@ -104,7 +103,7 @@ def symbol_like(ident: str, reader: Optional['HyReader'] = None) -> Object:
             or any(c.isspace() for c in ident)
             or set(NON_IDENT).intersection(ident)
         ):
-            raise ValueError(f'Syntactically illegal symbol: {ident!r}')
+            raise ValueError(f"Syntactically illegal symbol: {ident!r}")
 
     return sym(ident)
 
@@ -112,6 +111,7 @@ def symbol_like(ident: str, reader: Optional['HyReader'] = None) -> Object:
 def reader_for(char, args=None):
     """Assign the decorated method as the reader
     for the given character(s) in DEFAULT_TABLE."""
+
     def wrapper(f):
         if args is not None:
             DEFAULT_TABLE[char] = f(*args)
@@ -128,11 +128,13 @@ class HyReader:
     def __init__(self):
         self._source = None
         self._filename = None
-        self._module = ModuleType('<reader>')
-        self._module.__dict__.update({
-            "hy": hy,
-            mangle("&reader"): self,
-        })
+        self._module = ModuleType("<reader>")
+        self._module.__dict__.update(
+            {
+                "hy": hy,
+                mangle("&reader"): self,
+            }
+        )
 
         self.ends_ident = set(NON_IDENT)
         self.parse_default = HyReader.ident_or_prefixed_string
@@ -197,7 +199,9 @@ class HyReader:
             self._peek_chars.appendleft(c)
             yield c
         if not c and not eof_ok:
-            raise PrematureEndOfInput.from_reader("Premature end of input while peeking", self)
+            raise PrematureEndOfInput.from_reader(
+                "Premature end of input while peeking", self
+            )
 
     def getc(self):
         """Get one character from the stream, consuming it.
@@ -210,7 +214,7 @@ class HyReader:
         if c:
             line, col = self._pos
             col += 1
-            if c == '\n':
+            if c == "\n":
                 line += 1
                 col = 0
             self._pos = (line, col)
@@ -245,7 +249,8 @@ class HyReader:
             self.getc()
         if not nc and not eof_ok:
             raise PrematureEndOfInput.from_reader(
-                "Premature end of input while peeking ahead", self)
+                "Premature end of input while peeking ahead", self
+            )
 
     def chars(self, eof_ok=False):
         """Iterator for the character stream.
@@ -257,7 +262,8 @@ class HyReader:
             yield c
         if not c and not eof_ok:
             raise PrematureEndOfInput.from_reader(
-                "Premature end of input while streaming chars", self)
+                "Premature end of input while streaming chars", self
+            )
 
     ###
     # Reading multiple characters
@@ -265,7 +271,7 @@ class HyReader:
 
     def getn(self, n):
         """Read `n` characters."""
-        return ''.join(itertools.islice(self.chars(), n))
+        return "".join(itertools.islice(self.chars(), n))
 
     def slurp_space(self):
         """Consume 0 or more whitespace characters."""
@@ -274,7 +280,7 @@ class HyReader:
             if not c.isspace():
                 break
             s.append(c)
-        return ''.join(s)
+        return "".join(s)
 
     def read_ident(self, just_peeking=False):
         """Read characters until we hit something in `self.ends_ident`,
@@ -293,7 +299,7 @@ class HyReader:
             ident.append(nc)
         if not just_peeking:
             self.getn(len(ident))
-        return ''.join(ident)
+        return "".join(ident)
 
     ###
     # Reading AST nodes
@@ -310,7 +316,8 @@ class HyReader:
             start = self._pos
             if not c:
                 raise PrematureEndOfInput.from_reader(
-                    "Premature end of input while attempting to parse one node", self)
+                    "Premature end of input while attempting to parse one node", self
+                )
             handler = self.reader_table.get(c, self.parse_default)
             node = handler(self, c)
             return self.fill_pos(node, start)
@@ -352,7 +359,7 @@ class HyReader:
 
         try:
             self._set_source(source, filename)
-            yield from self.parse_nodes_until('')
+            yield from self.parse_nodes_until("")
         finally:
             if old_reader is None:
                 delattr(hy, rname)
@@ -386,7 +393,9 @@ class HyReader:
     @reader_for("]")
     @reader_for("}")
     def INVALID(self, key):
-        raise LexException.from_reader(f"Ran into a '{key}' where it wasn't expected.", self)
+        raise LexException.from_reader(
+            f"Ran into a '{key}' where it wasn't expected.", self
+        )
 
     @reader_for(";")
     def line_comment(self, _):
@@ -398,9 +407,9 @@ class HyReader:
         ident = self.read_ident()
         if "." in ident:
             raise LexException.from_reader(
-                f'Cannot access attribute on anything other'
-                ' than a name (in order to get attributes of expressions,'
-                ' use `(. <expression> <attr>)` or `(.<attr> <expression>)`)',
+                f"Cannot access attribute on anything other"
+                " than a name (in order to get attributes of expressions,"
+                " use `(. <expression> <attr>)` or `(.<attr> <expression>)`)",
                 self,
             )
         return Keyword(ident, from_parser=True)
@@ -411,7 +420,7 @@ class HyReader:
 
         def quote_closing(c):
             nonlocal escaping
-            if c == '\\':
+            if c == "\\":
                 escaping = not escaping
                 return 0
             if c == '"' and not escaping:
@@ -419,7 +428,7 @@ class HyReader:
             escaping = False
             return 0
 
-        return self.read_string_until(quote_closing, prefix, 'f' in prefix.lower())
+        return self.read_string_until(quote_closing, prefix, "f" in prefix.lower())
 
     ###
     # Special annotations
@@ -431,7 +440,9 @@ class HyReader:
         def _tag_as(self, _):
             nc = self.peekc()
             if not nc or nc.isspace() or self.reader_table.get(nc) == self.INVALID:
-                raise LexException.from_reader("Could not identify the next token.", self)
+                raise LexException.from_reader(
+                    "Could not identify the next token.", self
+                )
             node = self.parse_one_node()
             return mkexpr(root, node)
 
@@ -493,7 +504,8 @@ class HyReader:
 
         if not self.peekc():
             raise PrematureEndOfInput.from_reader(
-                "Premature end of input while attempting dispatch", self)
+                "Premature end of input while attempting dispatch", self
+            )
 
         # try dispatching tagged ident
         ident = self.read_ident(just_peeking=True)
@@ -571,13 +583,14 @@ class HyReader:
                 break
             elif c == "]":
                 raise LexException.from_reader(
-                    "Ran into a ']' where it wasn't expected.", self)
+                    "Ran into a ']' where it wasn't expected.", self
+                )
             delim.append(c)
-        delim = ''.join(delim)
+        delim = "".join(delim)
         is_fstring = delim == "f" or delim.startswith("f-")
 
         # discard single initial newline, if any
-        self.peek_and_getc('\n')
+        self.peek_and_getc("\n")
 
         index = -1
 
@@ -608,7 +621,7 @@ class HyReader:
         s = self.read_chars_until(closing, prefix, is_fstring=False)
         if isinstance(s, bytes):
             return Bytes(s, **kwargs)
-        return String(''.join(s), **kwargs)
+        return String("".join(s), **kwargs)
 
     def read_chars_until(self, closing, prefix, is_fstring):
         s = []
@@ -629,7 +642,7 @@ class HyReader:
                     # remove "{" from end of string component
                     s.pop()
                     break
-        res = ''.join(s)
+        res = "".join(s)
         if prefix is not None:
             res = eval(f'{prefix}"""{res}"""')
         if is_fstring:
@@ -669,7 +682,7 @@ class HyReader:
             has_debug = True
             space_after = self.slurp_space()
             dbg_prefix = (
-                space_before + ''.join(node_text) + space_between + "=" + space_after
+                space_before + "".join(node_text) + space_between + "=" + space_after
             )
             values.append(self.fill_pos(String(dbg_prefix), start))
 
@@ -689,7 +702,7 @@ class HyReader:
             format_components = self.read_fcomponents_until(component_closing, prefix)
         else:
             if has_debug and conversion is None:
-                conversion = 'r'
+                conversion = "r"
             if not self.getc() == "}":
                 raise LexException.from_reader("f-string: trailing junk in field", self)
         node = FComponent((node, *format_components), conversion)
