@@ -19,15 +19,13 @@ hy_ast_compile_flags = 0
 def ast_compile(a: ast.AST, filename: str, mode: str) -> types.CodeType:
     """Compile AST.
 
-    Parameters
-    ----------
-    a: instance of `ast.AST`
-    filename: Filename used for run-time error messages
-    mode: `compile` mode parameter
+    Args:
+        a: instance of `ast.AST`
+        filename: Filename used for run-time error messages
+        mode: `compile` mode parameter
 
-    Returns
-    -------
-    out : instance of `types.CodeType`
+    Returns:
+        out : instance of `types.CodeType`
     """
     return compile(a, filename, mode, hy_ast_compile_flags)
 
@@ -38,14 +36,12 @@ def calling_module(n: int=1) -> types.ModuleType:
     As a fallback, this will import a module using the calling frame's
     globals value of `__name__`.
 
-    Parameters
-    ----------
-    n: The number of levels up the stack from this function call.
-        The default is one level up.
+    Args:
+        n: The number of levels up the stack from this function call.
+            The default is one level up.
 
-    Returns
-    -------
-    out: The module at stack level `n + 1` or `None`.
+    Returns:
+        out: The module at stack level `n + 1` or `None`.
     """
     frame_up = inspect.stack(0)[n + 1][0]
     module = inspect.getmodule(frame_up)
@@ -284,14 +280,13 @@ class HyASTCompiler(object):
         source: Optional[str] = None,
     ):
         """
-        Parameters
-        ----------
-        module: Module name or object in which the Hy tree is evaluated.
-        filename: The name of the file for the source to be compiled.
-            This is optional information for informative error messages and
-            debugging.
-        source: The source for the file, if any, being compiled.  This is optional
-            information for informative error messages and debugging.
+        Args:
+            module: Module name or object in which the Hy tree is evaluated.
+            filename: The name of the file for the source to be compiled.
+                This is optional information for informative error messages and
+                debugging.
+            source: The source for the file, if any, being compiled.  This is optional
+                information for informative error messages and debugging.
         """
         self.anon_var_count = 0
         self.temp_if = None
@@ -749,34 +744,26 @@ def hy_compile(
 ) -> ast.AST:
     """Compile a hy.models.Object tree into a Python AST Module.
 
-    Parameters
-    ----------
-    tree: The Hy AST object to compile.
+    Args:
+        tree: The Hy AST object to compile.
+        module: Module, or name of the module, in which the Hy tree is evaluated.
+            The module associated with `compiler` takes priority over this value.
+        root: Root object for the Python AST tree.
+        get_expr: If true, return a tuple with `(root_obj, last_expression)`.
+        compiler: An existing Hy compiler to use for compilation.  Also serves as
+            the `module` value when given.
+        filename: The filename corresponding to the source for `tree`.  This will be
+            overridden by the `filename` field of `tree`, if any; otherwise, it
+            defaults to "<string>".  When `compiler` is given, its `filename` field
+            value is always used.
+        source: A string containing the source code for `tree`.  This will be
+            overridden by the `source` field of `tree`, if any; otherwise,
+            if `None`, an attempt will be made to obtain it from the module given by
+            `module`.  When `compiler` is given, its `source` field value is always
+            used.
 
-    module: Module, or name of the module, in which the Hy tree is evaluated.
-        The module associated with `compiler` takes priority over this value.
-
-    root: Root object for the Python AST tree.
-
-    get_expr: If true, return a tuple with `(root_obj, last_expression)`.
-
-    compiler: An existing Hy compiler to use for compilation.  Also serves as
-        the `module` value when given.
-
-    filename: The filename corresponding to the source for `tree`.  This will be
-        overridden by the `filename` field of `tree`, if any; otherwise, it
-        defaults to "<string>".  When `compiler` is given, its `filename` field
-        value is always used.
-
-    source: A string containing the source code for `tree`.  This will be
-        overridden by the `source` field of `tree`, if any; otherwise,
-        if `None`, an attempt will be made to obtain it from the module given by
-        `module`.  When `compiler` is given, its `source` field value is always
-        used.
-
-    Returns
-    -------
-    out : A Python AST tree
+    Returns:
+        A Python AST tree
     """
     module = get_compiler_module(module, compiler, False)
 

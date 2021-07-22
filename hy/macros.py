@@ -126,20 +126,18 @@ def require(
 
     This function is called from the macro also named `require`.
 
-    Parameters
-    ----------
-    source_module: The module from which macros are to be imported.
-    target_module: The module into which the macros will be loaded.  If `None`, then
-        the caller's namespace.
-        The latter is useful during evaluation of generated AST/bytecode.
-    assignments: The string "ALL" or a list of macro name and alias pairs.
-    prefix: If nonempty, its value is prepended to the name of each imported macro.
-        This allows one to emulate namespaced macros, like
-        "mymacromodule.mymacro", which looks like an attribute of a module.
+    Args:
+        source_module: The module from which macros are to be imported.
+        target_module: The module into which the macros will be loaded.  If `None`, then
+            the caller's namespace.
+            The latter is useful during evaluation of generated AST/bytecode.
+        assignments: The string "ALL" or a list of macro name and alias pairs.
+        prefix: If nonempty, its value is prepended to the name of each imported macro.
+            This allows one to emulate namespaced macros, like
+            "mymacromodule.mymacro", which looks like an attribute of a module.
 
-    Returns
-    -------
-    out: Whether or not macros were actually transferred.
+    Returns:
+        Whether or not macros were actually transferred.
     """
     if target_module is None:
         parent_frame = inspect.stack()[1][0]
@@ -296,16 +294,14 @@ def macroexpand(
     outer-most namespace--e.g.  the one given by the `module` parameter--is used
     as a fallback.
 
-    Parameters
-    ----------
-    tree: Hy AST tree.
-    module: Module used to determine the local namespace for macros.
-    compiler: The compiler object passed to expanded macros.
-    once: Only expand the first macro in `tree`.
+    Args:
+        tree: Hy AST tree.
+        module: Module used to determine the local namespace for macros.
+        compiler: The compiler object passed to expanded macros.
+        once: Only expand the first macro in `tree`.
 
-    Returns
-    ------
-    out: Returns a mutated tree with macros expanded.
+    Returns:
+        a mutated tree with macros expanded.
     """
     if not inspect.ismodule(module):
         module = importlib.import_module(module)

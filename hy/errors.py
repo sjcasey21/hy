@@ -46,18 +46,17 @@ class HyLanguageError(HyError):
         colno: int = 1,
     ):
         """
-        Parameters
-        ----------
-        message: The message to display for this error.
-        expression: The Hy expression generating this error.
-        filename: The filename for the source code generating this error.
-            Expression-provided information will take precedence of this value.
-        source: The actual source code generating this error.  Expression-provided
-            information will take precedence of this value.
-        lineno: The line number of the error.  Expression-provided information will
-            take precedence of this value.
-        colno: The column number of the error.  Expression-provided information
-            will take precedence of this value.
+        Args:
+            message: The message to display for this error.
+            expression: The Hy expression generating this error.
+            filename: The filename for the source code generating this error.
+                Expression-provided information will take precedence of this value.
+            source: The actual source code generating this error.  Expression-provided
+                information will take precedence of this value.
+            lineno: The line number of the error.  Expression-provided information will
+                take precedence of this value.
+            colno: The column number of the error.  Expression-provided information
+                will take precedence of this value.
         """
         self.msg = message
         self.compute_lineinfo(expression, filename, source, lineno, colno)
