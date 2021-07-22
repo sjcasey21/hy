@@ -3,37 +3,59 @@
 # license. See the LICENSE.
 
 import itertools
+import typing as t
 from collections import deque
 from contextlib import contextmanager
 from io import StringIO
 from types import ModuleType
-from typing import Optional
+from typing import (
+    Any,
+    Callable,
+    Deque,
+    Iterator,
+    Literal,
+    Optional,
+    Protocol,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    cast,
+    overload,
+)
 
 import hy
 from hy.models import (
-    Object,
     Bytes,
     Complex,
     Dict,
     Expression,
     FComponent,
-    FString,
     Float,
+    FString,
     Integer,
     Keyword,
     List,
+    Object,
     Set,
     String,
     Symbol,
 )
 
-from .exceptions import PrematureEndOfInput, LexException
+from .exceptions import LexException, PrematureEndOfInput
 from .mangle import mangle
+
+Node = TypeVar("Node", bound=Object)
+
+
+class ReaderMethod(Protocol):
+    def __call__(self, reader: "HyReader", key: str, **kwargs) -> Optional[Object]:  # type: ignore
+        ...
 
 
 NON_IDENT = "()[]{};\"'"
 
-DEFAULT_TABLE = {}
+DEFAULT_TABLE: t.Dict[str, ReaderMethod] = {}
 
 
 def sym(name):
@@ -48,7 +70,9 @@ def mkexpr(root, *args):
     return Expression((root, *args))
 
 
-def symbol_like(ident: str, reader: Optional["HyReader"] = None) -> Object:
+def symbol_like(
+    ident: str, reader: Optional["HyReader"] = None
+) -> Union[Integer, Expression, Float, Complex, Symbol]:
     """Generate a Hy AST node from an identifier-like string.
 
     Also verifies the syntax of dot notation and validity of symbol names.
@@ -108,7 +132,19 @@ def symbol_like(ident: str, reader: Optional["HyReader"] = None) -> Object:
     return sym(ident)
 
 
-def reader_for(char, args=None):
+@overload
+def reader_for(char: str, args: None = None) -> Callable[[ReaderMethod], ReaderMethod]:
+    ...
+
+
+@overload
+def reader_for(
+    char: str, args: t.Sequence[Any]
+) -> Callable[[Callable[..., ReaderMethod]], Callable[..., ReaderMethod]]:
+    ...
+
+
+def reader_for(char: str, args: Optional[t.Sequence[Any]] = None):
     """Assign the decorated method as the reader
     for the given character(s) in DEFAULT_TABLE."""
 
@@ -126,9 +162,9 @@ class HyReader:
     """A reader for Hy that generates Hy AST from a string."""
 
     def __init__(self):
-        self._source = None
-        self._filename = None
-        self._module = ModuleType("<reader>")
+        self._source: Optional[str] = None
+        self._filename: Optional[str] = None
+        self._module: ModuleType = ModuleType("<reader>")
         self._module.__dict__.update(
             {
                 "hy": hy,
@@ -136,17 +172,22 @@ class HyReader:
             }
         )
 
-        self.ends_ident = set(NON_IDENT)
-        self.parse_default = HyReader.ident_or_prefixed_string
-        self.reader_table = DEFAULT_TABLE.copy()
+        self.ends_ident: t.Set[str] = set(NON_IDENT)
+        self.parse_default: ReaderMethod = HyReader.ident_or_prefixed_string
+        self.reader_table: t.Dict[str, ReaderMethod] = DEFAULT_TABLE.copy()
+        self._saved_chars: t.List[t.List[str]] = []
+        self._pos = (1, 0)
+        self._eof_tracker = self._pos
+        self._stream = StringIO(self._source)
+        self._peek_chars: Deque[str] = deque()
 
-    def _set_source(self, source=None, filename=None):
+    def _set_source(self, source: Optional[str] = None, filename: Optional[str] = None):
         if filename is not None:
             self._filename = filename
         if source is not None:
             self._source = source
             self._stream = StringIO(self._source)
-            self._peek_chars = deque()
+            self._peek_chars: Deque[str] = deque()
             self._saved_chars = []
             self._pos = (1, 0)
             self._eof_tracker = self._pos
@@ -158,8 +199,15 @@ class HyReader:
     ###
     # Utility
     ###
+    @overload
+    def fill_pos(self, node: None, start: Tuple[int, int]) -> None:
+        ...
 
-    def fill_pos(self, node, start):
+    @overload
+    def fill_pos(self, node: Node, start: Tuple[int, int]) -> Node:
+        ...
+
+    def fill_pos(self, node: Optional[Node], start: Tuple[int, int]) -> Optional[Node]:
         if node is not None:
             node.start_line, node.start_column = start
             node.end_line, node.end_column = self._pos
@@ -170,7 +218,7 @@ class HyReader:
     ###
 
     @contextmanager
-    def saving_chars(self):
+    def saving_chars(self) -> Iterator[t.List[str]]:
         """Used to keep a verbatim string of characters
         as they are being read. Useful for '=' mode in f-strings."""
         self._saved_chars.append([])
@@ -179,7 +227,7 @@ class HyReader:
         if self._saved_chars:
             self._saved_chars[-1].extend(saved)
 
-    def peekc(self):
+    def peekc(self) -> str:
         """Peek on character from the stream without consuming it."""
         if self._peek_chars:
             return self._peek_chars[-1]
@@ -187,7 +235,7 @@ class HyReader:
         self._peek_chars.append(nc)
         return nc
 
-    def peeking(self, eof_ok=False):
+    def peeking(self, eof_ok: bool = False) -> Iterator[str]:
         """Iterator for character stream without consuming any characters.
         Useful for looking multiple characters ahead."""
         for nc in reversed(self._peek_chars):
@@ -203,7 +251,7 @@ class HyReader:
                 "Premature end of input while peeking", self
             )
 
-    def getc(self):
+    def getc(self) -> str:
         """Get one character from the stream, consuming it.
 
         This function does the bookkeeping for position data, so it's important
@@ -227,7 +275,7 @@ class HyReader:
 
         return c
 
-    def peek_and_getc(self, target):
+    def peek_and_getc(self, target: str) -> bool:
         """Peek one character. If it's equal to `target`,
         then consume it and return True. Otherwise return False
         without consuming the character."""
@@ -237,7 +285,7 @@ class HyReader:
             return True
         return False
 
-    def peekahead(self, eof_ok=False):
+    def peekahead(self, eof_ok: bool = False) -> Iterator[str]:
         """Iterator for stream that consumes characters "late";
         useful for functions like `slurp_space` that need
         to peek ahead to decide whether to stop."""
@@ -252,7 +300,7 @@ class HyReader:
                 "Premature end of input while peeking ahead", self
             )
 
-    def chars(self, eof_ok=False):
+    def chars(self, eof_ok: bool = False) -> Iterator[str]:
         """Iterator for the character stream.
         Consumes characters as they are produced."""
         while True:
@@ -269,11 +317,11 @@ class HyReader:
     # Reading multiple characters
     ###
 
-    def getn(self, n):
+    def getn(self, n: int) -> str:
         """Read `n` characters."""
         return "".join(itertools.islice(self.chars(), n))
 
-    def slurp_space(self):
+    def slurp_space(self) -> str:
         """Consume 0 or more whitespace characters."""
         s = []
         for c in self.peekahead(eof_ok=True):
@@ -282,7 +330,7 @@ class HyReader:
             s.append(c)
         return "".join(s)
 
-    def read_ident(self, just_peeking=False):
+    def read_ident(self, just_peeking: bool = False) -> str:
         """Read characters until we hit something in `self.ends_ident`,
         returning the string of read characters.
 
@@ -305,7 +353,7 @@ class HyReader:
     # Reading AST nodes
     ###
 
-    def try_parse_one_node(self):
+    def try_parse_one_node(self) -> Optional[Object]:
         """Read one (non-space) character from the stream,
         then call the corresponding handler.
 
@@ -320,13 +368,13 @@ class HyReader:
                 )
             handler = self.reader_table.get(c, self.parse_default)
             node = handler(self, c)
-            return self.fill_pos(node, start)
+            return self.fill_pos(node, start) if node is not None else None
         except LexException:
             raise
         except Exception as e:
             raise LexException.from_reader(str(e), self)
 
-    def parse_one_node(self):
+    def parse_one_node(self) -> Object:
         """Read from the stream until a node is parsed.
         Guaranteed to return a node (i.e., skips over comments)."""
         node = None
@@ -334,7 +382,7 @@ class HyReader:
             node = self.try_parse_one_node()
         return node
 
-    def parse_nodes_until(self, closer):
+    def parse_nodes_until(self, closer: str) -> Iterator[Object]:
         """Generator that produces nodes until the specified closing character is read.
         Useful for reading a sequence such as s-exprs or lists."""
         while True:
@@ -345,7 +393,7 @@ class HyReader:
             if node is not None:
                 yield node
 
-    def parse(self, source: str, filename: Optional[str] = None):
+    def parse(self, source: str, filename: Optional[str] = None) -> Iterator[Object]:
         """Generator that reads the entire source, producing nodes.
 
         Args:
@@ -370,20 +418,21 @@ class HyReader:
     # Reader dispatch logic
     ###
 
-    def do_dispatch(self, tag):
+    def do_dispatch(self, tag: str) -> Optional[Object]:
         """Call the handler for the tag."""
         return self.reader_table[tag](self, tag)
 
-    def ident_or_prefixed_string(self, key):
+    @staticmethod
+    def ident_or_prefixed_string(reader: "HyReader", key: str, **_):
         """Default reader handler when nothing in the table matches.
 
         Try to read an identifier/symbol. If there's a double-quote immediately following,
         then parse it as a string with the given prefix (e.g., `r"..."`).
         Otherwise, parse it as a symbol-like."""
-        ident = key + self.read_ident()
-        if self.peek_and_getc('"'):
-            return self.prefixed_string('"', ident)
-        return symbol_like(ident, reader=self)
+        ident = key + reader.read_ident()
+        if reader.peek_and_getc('"'):
+            return reader.prefixed_string(reader, '"', prefix=ident)
+        return symbol_like(ident, reader=reader)
 
     ###
     # Basic atoms
@@ -391,32 +440,33 @@ class HyReader:
 
     @reader_for(")")
     @reader_for("]")
-    @reader_for("}")
-    def INVALID(self, key):
+    @reader_for("}")  # type: ignore
+    def INVALID(self, key: str):
         raise LexException.from_reader(
             f"Ran into a '{key}' where it wasn't expected.", self
         )
 
     @reader_for(";")
-    def line_comment(self, _):
-        any(c == "\n" for c in self.chars(eof_ok=True))
+    def line_comment(reader, key, **_):
+        any(c == "\n" for c in reader.chars(eof_ok=True))
         return None
 
     @reader_for(":")
-    def keyword(self, _):
-        ident = self.read_ident()
+    def keyword(reader, key, **_):
+        ident = reader.read_ident()
         if "." in ident:
             raise LexException.from_reader(
                 f"Cannot access attribute on anything other"
                 " than a name (in order to get attributes of expressions,"
                 " use `(. <expression> <attr>)` or `(.<attr> <expression>)`)",
-                self,
+                reader,
             )
         return Keyword(ident, from_parser=True)
 
     @reader_for('"')
-    def prefixed_string(self, _, prefix=""):
+    def prefixed_string(reader, key, **kwargs):
         escaping = False
+        prefix: Optional[str] = kwargs.get("prefix")
 
         def quote_closing(c):
             nonlocal escaping
@@ -428,7 +478,7 @@ class HyReader:
             escaping = False
             return 0
 
-        return self.read_string_until(quote_closing, prefix, "f" in prefix.lower())
+        return reader.read_string_until(quote_closing, prefix, "f" in prefix.lower())
 
     ###
     # Special annotations
@@ -437,38 +487,38 @@ class HyReader:
     @reader_for("'", ("quote",))
     @reader_for("`", ("quasiquote",))
     def tag_as(root):
-        def _tag_as(self, _):
-            nc = self.peekc()
-            if not nc or nc.isspace() or self.reader_table.get(nc) == self.INVALID:
+        def _tag_as(reader: "HyReader", key, **_):
+            nc = reader.peekc()
+            if not nc or nc.isspace() or reader.reader_table.get(nc) is reader.INVALID:
                 raise LexException.from_reader(
-                    "Could not identify the next token.", self
+                    "Could not identify the next token.", reader
                 )
-            node = self.parse_one_node()
+            node = reader.parse_one_node()
             return mkexpr(root, node)
 
         return _tag_as
 
     @reader_for("~")
-    def unquote(self, key):
-        nc = self.peekc()
-        if not nc or nc.isspace() or self.reader_table.get(nc) == self.INVALID:
+    def unquote(reader, key, **_):
+        nc = reader.peekc()
+        if not nc or nc.isspace() or reader.reader_table.get(nc) is reader.INVALID:
             return sym(key)
-        if self.peek_and_getc("@"):
+        if reader.peek_and_getc("@"):
             root = "unquote-splice"
         else:
             root = "unquote"
-        node = self.parse_one_node()
+        node = reader.parse_one_node()
         return mkexpr(root, node)
 
     @reader_for("^")
-    def annotate_or_xor(self, _):
-        suffix = self.read_ident(just_peeking=True)
+    def annotate_or_xor(reader, key, **_):
+        suffix = reader.read_ident(just_peeking=True)
         if suffix == "":
             return sym("^")
         if suffix == "=":
-            self.getc()
+            reader.getc()
             return sym("^=")
-        node = self.parse_one_node()
+        node = reader.parse_one_node()
         return mkexpr("annotate", node)
 
     ###
@@ -479,9 +529,12 @@ class HyReader:
     @reader_for("[", (List, "]"))
     @reader_for("{", (Dict, "}"))
     @reader_for("#{", (Set, "}"))
-    def sequence(seq_type, closer):
-        def _sequence(self, _):
-            return seq_type(self.parse_nodes_until(closer))
+    def sequence(
+        seq_type: Union[Type[Expression], Type[List], Type[Dict], Type[Set]],
+        closer: str,
+    ):
+        def _sequence(reader: "HyReader", key, **_) -> Object:
+            return seq_type(reader.parse_nodes_until(closer))
 
         return _sequence
 
@@ -490,7 +543,7 @@ class HyReader:
     ###
 
     @reader_for("#")
-    def dispatch(self, key):
+    def dispatch(reader, key, **_):
         """General handler for reader macros (and tag macros).
 
         First, reads a full identifier (if any) after the `#` and calls the corresponding handler
@@ -502,51 +555,51 @@ class HyReader:
         Failing that, parses the text as an old-style tag macro
         (e.g., `#ident [...]` parses as macro form `(#ident [...])`"""
 
-        if not self.peekc():
+        if not reader.peekc():
             raise PrematureEndOfInput.from_reader(
-                "Premature end of input while attempting dispatch", self
+                "Premature end of input while attempting dispatch", reader
             )
 
         # try dispatching tagged ident
-        ident = self.read_ident(just_peeking=True)
-        if ident and key + ident in self.reader_table:
-            self.getn(len(ident))
-            return self.do_dispatch(key + ident)
+        ident = reader.read_ident(just_peeking=True)
+        if ident and key + ident in reader.reader_table:
+            reader.getn(len(ident))
+            return reader.do_dispatch(key + ident)
 
         # failing that, dispatch tag + single character
-        if key + self.peekc() in self.reader_table:
-            tag = key + self.getc()
-            return self.do_dispatch(tag)
+        if key + reader.peekc() in reader.reader_table:
+            tag = key + reader.getc()
+            return reader.do_dispatch(tag)
 
         # fall back to old tag macro behavior
-        tag = key + self.read_ident()
+        tag = key + reader.read_ident()
         if tag == key:
-            raise LexException.from_reader("empty tag name", self)
-        return mkexpr(tag, self.parse_one_node())
+            raise LexException.from_reader("empty tag name", reader)
+        return mkexpr(tag, reader.parse_one_node())
 
     @reader_for("#_")
-    def discard(self, _):
+    def discard(reader, key, **_):
         """Discards the next parsed node."""
-        self.parse_one_node()
+        reader.parse_one_node()
         return None
 
     @reader_for("#*")
-    def hash_star(self, _):
+    def hash_star(reader, key, **_):
         """Splat unpacking forms `#*` and `#**`, corresponding to `*` and `**` in Python."""
         num_stars = 1
-        while self.peek_and_getc("*"):
+        while reader.peek_and_getc("*"):
             num_stars += 1
         if num_stars > 2:
-            raise LexException.from_reader("too many stars", self)
+            raise LexException.from_reader("too many stars", reader)
         if num_stars == 1:
             root = "unpack-iterable"
         else:
             root = "unpack-mapping"
-        node = self.parse_one_node()
+        node = reader.parse_one_node()
         return mkexpr(root, node)
 
     @reader_for("#@")
-    def decorate(self, _):
+    def decorate(reader, key, **_):
         """Function/class decorator, corresponding to `@`-decorators in Python.
 
         Examples:
@@ -558,15 +611,15 @@ class HyReader:
             #@ (deco-with-args foo bar)
             (defn baz [] ...)
         """
-        decorators = self.parse_one_node()
-        defn = self.parse_one_node()
+        decorators = reader.parse_one_node()
+        defn = reader.parse_one_node()
         if not isinstance(decorators, List):
             decorators = [decorators]
         return mkexpr("with-decorator", *decorators, defn)
 
     @reader_for("#(")
-    def tuple_list(self, _):
-        return mkexpr(",", *self.parse_nodes_until(")"))
+    def tuple_list(reader, key, **_):
+        return mkexpr(",", *reader.parse_nodes_until(")"))
 
     ###
     # Strings
@@ -575,26 +628,26 @@ class HyReader:
     ###
 
     @reader_for("#[")
-    def bracketed_string(self, _):
+    def bracketed_string(reader, key, **_):
         """Bracketed strings. See the Hy docs for full details."""
         delim = []
-        for c in self.chars():
+        for c in reader.chars():
             if c == "[":
                 break
             elif c == "]":
                 raise LexException.from_reader(
-                    "Ran into a ']' where it wasn't expected.", self
+                    "Ran into a ']' where it wasn't expected.", reader
                 )
             delim.append(c)
         delim = "".join(delim)
         is_fstring = delim == "f" or delim.startswith("f-")
 
         # discard single initial newline, if any
-        self.peek_and_getc("\n")
+        reader.peek_and_getc("\n")
 
         index = -1
 
-        def delim_closing(c):
+        def delim_closing(c: str):
             nonlocal index
             if c == "]":
                 if index == len(delim):
@@ -612,19 +665,47 @@ class HyReader:
                     index = -1
             return 0
 
-        return self.read_string_until(delim_closing, None, is_fstring, brackets=delim)
+        return reader.read_string_until(delim_closing, None, is_fstring, brackets=delim)
 
-    def read_string_until(self, closing, prefix, is_fstring, **kwargs):
+    def read_string_until(
+        self,
+        closing: Callable[[str], int],
+        prefix: Optional[str],
+        is_fstring: bool,
+        **kwargs,
+    ):
         if is_fstring:
             components = self.read_fcomponents_until(closing, prefix)
             return FString(components, **kwargs)
-        s = self.read_chars_until(closing, prefix, is_fstring=False)
-        if isinstance(s, bytes):
-            return Bytes(s, **kwargs)
-        return String("".join(s), **kwargs)
+        else:
+            s = self.read_chars_until(closing, prefix, is_fstring=False)
+            if isinstance(s, bytes):
+                return Bytes(s, **kwargs)
+            return String("".join(s), **kwargs)
 
-    def read_chars_until(self, closing, prefix, is_fstring):
-        s = []
+    @overload
+    def read_chars_until(
+        self,
+        closing: Callable[[str], int],
+        prefix: Optional[str],
+        is_fstring: Literal[True],
+    ) -> Tuple[Union[str, bytes], int]:
+        ...
+
+    @overload
+    def read_chars_until(
+        self,
+        closing: Callable[[str], int],
+        prefix: Optional[str],
+        is_fstring: Literal[False],
+    ) -> Union[str, bytes]:
+        ...
+
+    def read_chars_until(
+        self, closing: Callable[[str], int], prefix: Optional[str], is_fstring: bool
+    ):
+        s: t.List[str] = []
+        n_closing_chars = 0
         for c in self.chars():
             s.append(c)
             # check if c is closing
@@ -644,12 +725,14 @@ class HyReader:
                     break
         res = "".join(s)
         if prefix is not None:
-            res = eval(f'{prefix}"""{res}"""')
+            res = cast(Union[str, bytes], eval(f'{prefix}"""{res}"""'))
         if is_fstring:
             return res, n_closing_chars
         return res
 
-    def read_fcomponents_until(self, closing, prefix):
+    def read_fcomponents_until(
+        self, closing: Callable[[str], int], prefix: Optional[str]
+    ) -> t.List[Union[String, FComponent, None]]:
         components = []
         start = self.pos
         while True:
@@ -661,11 +744,13 @@ class HyReader:
             components.extend(self.read_fcomponent(prefix))
         return components
 
-    def read_fcomponent(self, prefix):
+    def read_fcomponent(
+        self, prefix: Optional[str]
+    ) -> t.List[Union[String, FComponent]]:
         """May return one or two components, since the `=` debugging syntax
         will create a String component."""
         start = self.pos
-        values = []
+        values: t.List[Union[String, FComponent]] = []
         conversion = None
         has_debug = False
 
@@ -691,7 +776,7 @@ class HyReader:
             conversion = self.getc()
         self.slurp_space()
 
-        def component_closing(c):
+        def component_closing(c: str) -> int:
             if c == "}":
                 return 1
             return 0
