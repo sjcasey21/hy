@@ -1,3 +1,4 @@
+from typing import Optional, TYPE_CHECKING
 import os
 import re
 import sys
@@ -8,6 +9,9 @@ from functools import reduce
 from colorama import Fore
 from contextlib import contextmanager
 from hy import _initialize_env_var
+
+if TYPE_CHECKING:
+    from hy.models import Object
 
 _hy_filter_internal_errors = _initialize_env_var('HY_FILTER_INTERNAL_ERRORS',
                                                  True)
@@ -32,26 +36,27 @@ class HyLanguageError(HyError):
     This, and any errors inheriting from this, are user-facing.
     """
 
-    def __init__(self, message, expression=None, filename=None, source=None,
-                 lineno=1, colno=1):
+    def __init__(
+        self,
+        message: str,
+        expression: Optional["Object"] = None,
+        filename: Optional[str] = None,
+        source: Optional[str] = None,
+        lineno: int = 1,
+        colno: int = 1,
+    ):
         """
         Parameters
         ----------
-        message: str
-            The message to display for this error.
-        expression: HyObject, optional
-            The Hy expression generating this error.
-        filename: str, optional
-            The filename for the source code generating this error.
+        message: The message to display for this error.
+        expression: The Hy expression generating this error.
+        filename: The filename for the source code generating this error.
             Expression-provided information will take precedence of this value.
-        source: str, optional
-            The actual source code generating this error.  Expression-provided
+        source: The actual source code generating this error.  Expression-provided
             information will take precedence of this value.
-        lineno: int, optional
-            The line number of the error.  Expression-provided information will
+        lineno: The line number of the error.  Expression-provided information will
             take precedence of this value.
-        colno: int, optional
-            The column number of the error.  Expression-provided information
+        colno: The column number of the error.  Expression-provided information
             will take precedence of this value.
         """
         self.msg = message

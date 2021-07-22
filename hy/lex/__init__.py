@@ -1,10 +1,12 @@
 import keyword
 import re
 import sys
+from typing import Optional
+import typing as t
 import unicodedata
 
 from hy.lex.exceptions import PrematureEndOfInput, LexException  # NOQA
-from hy.models import Expression, Symbol
+from hy.models import Expression, Object, Symbol
 
 try:
     from io import StringIO
@@ -12,15 +14,15 @@ except ImportError:
     from StringIO import StringIO
 
 
-def hy_parse(source, filename='<string>'):
+def hy_parse(source: str, filename: str = '<string>') -> Expression:
     """Parse a Hy source string.
 
     Args:
-      source (string): Source code to parse.
-      filename (string, optional): File name corresponding to source.  Defaults to "<string>".
+      source: Source code to parse.
+      filename: File name corresponding to source.  Defaults to "<string>".
 
     Returns:
-      out : hy.models.Expression
+      out : the parsed models wrapped in an hy.models.Expression
     """
     _source = re.sub(r'\A#!.*', '', source)
     res = Expression([Symbol("do")] +
@@ -37,7 +39,7 @@ class ParserState(object):
         self.filename = filename
 
 
-def tokenize(source, filename=None):
+def tokenize(source: str, filename: Optional[str]=None) -> t.List[Object]:
     """ Tokenize a Lisp file or string buffer into internal Hy objects.
 
     Args:

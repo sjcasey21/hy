@@ -5,16 +5,22 @@ import inspect
 import pkgutil
 import traceback
 from ast import AST
+from typing import Optional, Union, TYPE_CHECKING
+import typing as t
+from types import ModuleType
 
 from funcparserlib.parser import NoParseError
 
 from hy._compat import PY3_8
 from hy.model_patterns import whole
-from hy.models import replace_hy_obj, Expression, Symbol, as_model, is_unpack
+from hy.models import Object, replace_hy_obj, Expression, Symbol, as_model, is_unpack
 from hy.lex import mangle, unmangle
 from hy.errors import (HyLanguageError, HyMacroExpansionError, HyTypeError,
                        HyRequireError)
 import hy.compiler
+
+if TYPE_CHECKING:
+    from hy.compiler import HyASTCompiler
 
 EXTRA_MACROS = ["hy.core.result_macros", "hy.core.macros"]
 
@@ -110,33 +116,30 @@ def _same_modules(source_module, target_module):
             source_filename == target_filename)
 
 
-def require(source_module, target_module, assignments, prefix=""):
+def require(
+    source_module: Union[str, ModuleType],
+    target_module: Optional[Union[str, ModuleType]],
+    assignments: Union[str, t.Sequence[str]],
+    prefix: str = "",
+) -> bool:
     """Load macros from one module into the namespace of another.
 
     This function is called from the macro also named `require`.
 
     Parameters
     ----------
-    source_module: str or types.ModuleType
-        The module from which macros are to be imported.
-
-    target_module: str, types.ModuleType or None
-        The module into which the macros will be loaded.  If `None`, then
+    source_module: The module from which macros are to be imported.
+    target_module: The module into which the macros will be loaded.  If `None`, then
         the caller's namespace.
         The latter is useful during evaluation of generated AST/bytecode.
-
-    assignments: str or list of tuples of strs
-        The string "ALL" or a list of macro name and alias pairs.
-
-    prefix: str, optional ("")
-        If nonempty, its value is prepended to the name of each imported macro.
+    assignments: The string "ALL" or a list of macro name and alias pairs.
+    prefix: If nonempty, its value is prepended to the name of each imported macro.
         This allows one to emulate namespaced macros, like
         "mymacromodule.mymacro", which looks like an attribute of a module.
 
     Returns
     -------
-    out: boolean
-        Whether or not macros were actually transferred.
+    out: Whether or not macros were actually transferred.
     """
     if target_module is None:
         parent_frame = inspect.stack()[1][0]
@@ -272,7 +275,13 @@ class MacroExceptions():
             return False
 
 
-def macroexpand(tree, module, compiler=None, once=False, result_ok=True):
+def macroexpand(
+    tree: Union[Object, list],
+    module: Union[str, ModuleType],
+    compiler: Optional["HyASTCompiler"] = None,
+    once: bool = False,
+    result_ok: bool = True,
+) -> Object:
     """Expand the toplevel macros for the given Hy AST tree.
 
     Load the macros from the given `module`, then expand the (top-level) macros
@@ -289,22 +298,14 @@ def macroexpand(tree, module, compiler=None, once=False, result_ok=True):
 
     Parameters
     ----------
-    tree: hy.models.Object or list
-        Hy AST tree.
-
-    module: str or types.ModuleType
-        Module used to determine the local namespace for macros.
-
-    compiler: HyASTCompiler, optional
-        The compiler object passed to expanded macros.
-
-    once: boolean, optional
-        Only expand the first macro in `tree`.
+    tree: Hy AST tree.
+    module: Module used to determine the local namespace for macros.
+    compiler: The compiler object passed to expanded macros.
+    once: Only expand the first macro in `tree`.
 
     Returns
     ------
-    out: hy.models.Object
-        Returns a mutated tree with macros expanded.
+    out: Returns a mutated tree with macros expanded.
     """
     if not inspect.ismodule(module):
         module = importlib.import_module(module)
